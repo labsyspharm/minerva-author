@@ -1,0 +1,49 @@
+Group,Marker Name,Channel Number,Low,High,Color
+Nuclei,DAPI,0,500,60000,#EEEEEE
+Structural Components,DAPI,0,500,60000,#0000FF
+Structural Components,KERATIN,14,500,35000,#FFFFFF
+Structural Components,ASMA,34,500,40000,#FF0000
+Structural Components,CD45,22,100,5000,#00FF00
+Structural Components,IBA1,33,1000,65000,#00FFFF
+Structural Components 2,DAPI,0,500,60000,#0000FF
+Structural Components 2,KERATIN,14,500,35000,#FFFFFF
+Structural Components 2,ASMA,34,500,40000,#FF0000
+Structural Components 2,CD45,22,100,5000,#00FF00
+PDL1 Expression,DAPI,0,500,60000,#0000FF
+PDL1 Expression,KERATIN,14,500,35000,#FFFFFF
+PDL1 Expression,PDL1,19,1000,1500,#FF0000
+PDL1 Expression,IBA1,33,1000,65000,#00FFFF
+B-Cells and T-Cells,DAPI,0,500,60000,#0000FF
+B-Cells and T-Cells,CD3D,18,700,2000,#FF0000
+B-Cells and T-Cells,CD20,35,1000,15000,#FFFFFF
+Regulatory T-Cells,DAPI,0,500,60000,#0000FF
+Regulatory T-Cells,CD3D,18,700,2000,#FF0000
+Regulatory T-Cells,CD4,21,500,40000,#00FF00
+Regulatory T-Cells,FOXP3,30,1000,7000,#FFFFFF
+Cytotoxic T-Cells,DAPI,0,500,60000,#0000FF
+Cytotoxic T-Cells,CD3D,18,700,2000,#FF0000
+Cytotoxic T-Cells,CD8A,23,500,20000,#00FF00
+Inhibitory T-Cells,DAPI,0,500,60000,#0000FF
+Inhibitory T-Cells,CD3D,18,700,2000,#FF0000
+Inhibitory T-Cells,PD1,15,3000,5000,#00FF00
+Inhibitory T-Cells,FOXP3,30,1000,7000,#FFFFFF
+Rare Immune Population 1,DAPI,0,500,60000,#0000FF
+Rare Immune Population 1,CD4,21,500,40000,#00FF00
+Rare Immune Population 1,CD8A,23,500,20000,#FF0000
+Rare Immune Population 1,FOXP3,30,1000,7000,#FFFFFF
+Rare Immune Population 2,DAPI,0,500,60000,#0000FF
+Rare Immune Population 2,CD4,21,500,40000,#00FF00
+Rare Immune Population 2,CD8A,23,500,20000,#FF0000
+Rare Immune Population 2,PD1,15,3000,5000,#00FFFF
+Rare Immune Population 2,FOXP3,30,1000,7000,#FFFFFF
+Macrophages,DAPI,0,500,60000,#0000FF
+Macrophages,IBA1,33,1000,40000,#00FF00
+Macrophages,CD163,25,1500,25000,#FF0000
+Macrophages (cont.),DAPI,0,500,60000,#0000FF
+Macrophages (cont.),CD68,26,1000,15000,#00FF00
+Macrophages (cont.),CD11B,29,1000,20000,#FFFFFF
+Macrophages (cont.),CD14,27,1000,50000,#FF0000
+Keratin,KERATIN,14,500,35000,#FFFFFF
+ASMA,ASMA,34,500,40000,#FF0000
+CD45,CD45,22,100,5000,#00FF00
+IBA1,IBA1,33,1000,65000,#00FFFF
