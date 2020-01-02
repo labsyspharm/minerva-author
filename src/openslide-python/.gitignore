@@ -1,6 +1,0 @@
-/build
-/dist
-/MANIFEST
-/*.egg-info
-/openslide/_convert*.so
-*.pyc

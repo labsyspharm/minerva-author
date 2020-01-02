@@ -1,0 +1,10 @@
+# Include the license file
+include LICENSE
+
+# Include cython source
+recursive-include pytiff *.pyx *.pxd
+
+# Include test data
+recursive-include test_data *.tif
+
+recursive-exclude test_data/.hypothesis *
