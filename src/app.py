@@ -129,7 +129,8 @@ def api_import():
             }]
 
         if os.path.exists(input_file):
-            # render_tiles(input_file, u16_dir, 1024, num_channels)
+            if not os.path.exists(u16_dir):
+                render_tiles(input_file, u16_dir, 1024, num_channels)
             G['out_dir'] = str(out_dir)
             G['u16_dir'] = str(u16_dir)
             G['in_file'] = str(input_file)
