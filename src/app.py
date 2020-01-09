@@ -10,6 +10,8 @@ from flask import send_file
 from flask import make_response
 from render_png import render_tiles
 from render_jpg import render_color_tiles
+from flask_cors import CORS, cross_origin
+
 
 G = {
     'u16_dir': None,
@@ -38,23 +40,64 @@ app = Flask(__name__,
             static_folder=resource_path('static'),
             static_url_path='')
 
+cors = CORS(app)
+app.config['CORS_HEADERS'] = 'Content-Type'
+
 @app.route('/')
 def root():
     return app.send_static_file('index.html')
 
 @app.route('/api/u16/<path:path>')
+@cross_origin()
 def u16_image(path):
     image_path = os.path.join(G['u16_dir'], path)
     return send_file(image_path, mimetype='image/png')
 
+@app.route('/api/out/<path:path>')
+@cross_origin()
+def out_image(path):
+    image_path = os.path.join(G['out_dir'], path)
+    return send_file(image_path, mimetype='image/jpeg')
+
 @app.route('/api/yaml', methods=['GET', 'POST'])
+@cross_origin()
 def api_yaml():
     yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
     response = make_response(yaml_text, 200)
     response.mimetype = "text/plain"
     return response
 
-@app.route('/api/render', methods=['GET', 'POST'])
+
+@app.route('/api/stories', methods=['POST'])
+@cross_origin()
+def api_stories():
+
+    def make_waypoints(d):
+        for waypoint in d:
+            yield {
+                'Name': waypoint['name'],
+                'Description': waypoint['text'],
+                'Group': waypoint['group'],
+                'Zoom': waypoint['zoom'],
+                'Pan': waypoint['pan'],
+            }
+
+    def make_stories(d):
+        for story in d:
+            yield {
+                'Name': story['name'],
+                'Description': story['text'],
+                'Waypoints': list(make_waypoints(story['waypoints']))
+            }
+
+    if request.method == 'POST':
+        data = request.json['stories']
+        YAML['Stories'] = list(make_stories(data))
+        return 'OK'
+
+
+@app.route('/api/render', methods=['POST'])
+@cross_origin()
 def api_render():
 
     def make_yaml(d):
@@ -80,8 +123,8 @@ def api_render():
                     'Group': group['label'],
                     'Marker Name': channel['label'],
                     'Channel Number': str(channel['id']),
-                    'Low': channel['range']['min'],
-                    'High': channel['range']['max'],
+                    'Low': int(65535 * channel['min']),
+                    'High': int(65535 * channel['max']),
                     'Color': '#' + channel['color'],
                 }
     
@@ -90,18 +133,25 @@ def api_render():
         config_rows = list(make_rows(data))
         YAML['Groups'] = list(make_yaml(data))
 
+        with open(G['out_yaml'], 'w') as wf:
+            yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
+            wf.write(yaml_text)
+
         render_color_tiles(G['in_file'], G['out_dir'], 1024,
                            G['channels'], config_rows)
         
         return 'OK'
 
 @app.route('/api/import', methods=['GET', 'POST'])
+@cross_origin()
 def api_import():
     if request.method == 'GET':
 
         return jsonify({
             'loaded': G['loaded'],
-            'channels': G['channels']
+            'channels': G['channels'],
+            'height': G['height'],
+            'width': G['width']
         })
 
     if request.method == 'POST':
@@ -109,6 +159,7 @@ def api_import():
         input_file = pathlib.Path(data['filepath'])
         u16_dir = os.path.join(input_file.parent, 'u16')
         out_dir = os.path.join(input_file.parent, 'out')
+        out_yaml = os.path.join(input_file.parent, 'out.yaml')
 
         num_channels = 0
 
@@ -122,15 +173,18 @@ def api_import():
             YAML['Images'] = [{
                 'Name': 'i0',
                 'Description': '',
-                'Path': 'http://localhost:8000',
+                'Path': 'http://localhost:2020/api/out',
                 'Width': handle.shape[1],
                 'Height': handle.shape[0],
                 'MaxLevel': num_levels - 1
             }]
+            G['height'] = handle.shape[0]
+            G['width'] = handle.shape[1]
 
         if os.path.exists(input_file):
             if not os.path.exists(u16_dir):
                 render_tiles(input_file, u16_dir, 1024, num_channels)
+            G['out_yaml'] = str(out_yaml)
             G['out_dir'] = str(out_dir)
             G['u16_dir'] = str(u16_dir)
             G['in_file'] = str(input_file)
