@@ -95,6 +95,43 @@ def api_stories():
         YAML['Stories'] = list(make_stories(data))
         return 'OK'
 
+@app.route('/api/minerva/yaml', methods=['POST'])
+@cross_origin()
+def api_minerva_yaml():
+
+    def make_yaml(d):
+        for group in d:
+            channels = group['channels']
+
+            yield {
+                'Path': group['id'],
+                'Name': group['label'],
+                'Colors': [c['color'] for c in channels],
+                'Channels': [c['label'] for c in channels]
+            }
+
+    if request.method == 'POST':
+        groups = request.json['groups']
+        img = request.json['image']
+
+        YAML['Groups'] = list(make_yaml(groups))
+        YAML['Images'] = [{
+            'Name': 'i0',
+            'Description': '',
+            'Provider': 'minerva',
+            'Path': img['url'] + img['id'] + '/prerendered-tile/',
+            'Width': img['width'],
+            'Height': img['height'],
+            'MaxLevel': img['maxLevel']
+        }]
+
+        with open('out.yaml', 'w') as wf:
+            yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
+            wf.write(yaml_text)
+
+        return 'OK'
+
+
 
 @app.route('/api/render', methods=['POST'])
 @cross_origin()
