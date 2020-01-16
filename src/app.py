@@ -17,7 +17,9 @@ G = {
     'u16_dir': None,
     'in_file': None,
     'channels': 0,
-    'loaded': False
+    'loaded': False,
+    'height': 1024,
+    'width': 1024
 }
 YAML = {
     'Images': [],
@@ -200,7 +202,8 @@ def api_import():
 
         num_channels = 0
 
-        with pytiff.Tiff(str(input_file)) as handle:
+        with pytiff.Tiff(str(input_file), encoding='utf-8') as handle:
+
             for page in handle.pages:
                 if handle.shape == page.shape:
                     num_channels += 1

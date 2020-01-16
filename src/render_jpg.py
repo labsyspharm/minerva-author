@@ -38,7 +38,7 @@ def render_color_tiles(input_file, output_dir, tile_size, num_channels, config_r
     print('Processing:', str(input_file))
 
     output_path = pathlib.Path(output_dir)
-    tiff = pytiff.Tiff(str(input_file))
+    tiff = pytiff.Tiff(str(input_file), encoding='utf-8')
 
     assert tiff.number_of_pages % num_channels == 0, "Pyramid/channel mismatch"
 
