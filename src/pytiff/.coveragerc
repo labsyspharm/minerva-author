@@ -1,5 +1,0 @@
-[run]
-plugins = Cython.Coverage
-omit =
-      */test/*
-      */__init__.py
