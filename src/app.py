@@ -1,6 +1,7 @@
 import pathlib
 import sys
 import os
+import csv
 import yaml
 import pytiff
 from flask import Flask
@@ -16,7 +17,7 @@ from flask_cors import CORS, cross_origin
 G = {
     'u16_dir': None,
     'in_file': None,
-    'channels': 0,
+    'channels': [],
     'loaded': False,
     'height': 1024,
     'width': 1024
@@ -177,8 +178,8 @@ def api_render():
             wf.write(yaml_text)
 
         render_color_tiles(G['in_file'], G['out_dir'], 1024,
-                           G['channels'], config_rows)
-        
+                           len(G['channels']), config_rows)
+
         return 'OK'
 
 @app.route('/api/import', methods=['GET', 'POST'])
@@ -195,6 +196,7 @@ def api_import():
 
     if request.method == 'POST':
         data = request.form
+        csv_file = pathlib.Path(data['csvpath'])
         input_file = pathlib.Path(data['filepath'])
         u16_dir = os.path.join(input_file.parent, 'u16')
         out_dir = os.path.join(input_file.parent, 'out')
@@ -221,6 +223,23 @@ def api_import():
             G['height'] = handle.shape[0]
             G['width'] = handle.shape[1]
 
+        def yield_labels(num_channels): 
+            num_labels = 0
+            try:
+                with open(csv_file) as cf:
+                    reader = csv.DictReader(cf)
+                    for row in reader:
+                        if num_labels < num_channels:
+                            yield row.get('marker_name', str(num_labels))
+                            num_labels += 1
+            except Exception as e:
+                pass
+            while num_labels < num_channels:
+                yield str(num_labels)
+                num_labels += 1
+
+        labels = list(yield_labels(num_channels))
+
         if os.path.exists(input_file):
             if not os.path.exists(u16_dir):
                 render_tiles(input_file, u16_dir, 1024, num_channels)
@@ -228,7 +247,7 @@ def api_import():
             G['out_dir'] = str(out_dir)
             G['u16_dir'] = str(u16_dir)
             G['in_file'] = str(input_file)
-            G['channels'] = num_channels
+            G['channels'] = labels
             G['loaded'] = True
 
         return 'OK'
