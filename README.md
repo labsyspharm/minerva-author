@@ -10,7 +10,14 @@ pip install -r requirements.txt
 ```
 python src/app.py
 ```
-Then open a browser to `localhost:2020`
+
+- Then, open a browser to `localhost:2020`
+
+- Then, copy the filepath to an OME Tiff
+
+- Wait for the generation of a full pyramid
+
+After you hit 'save', look in the directory of the original OME Tiff for an `out.yaml` configuration file and an `out` directory of rendered images for use with Minerva Story.
 
 ### Packaging
 
