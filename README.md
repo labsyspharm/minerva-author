@@ -17,7 +17,7 @@ python src/app.py
 
 - Wait for the generation of a full pyramid
 
-After you hit 'save', look in the directory of the original OME Tiff for an `out.yaml` configuration file and an `out` directory of rendered images for use with Minerva Story.
+At minimum, you'll need to type one 'Group' name into the top dropdown to create a group. For each group you create, you can select channels from the second dropdown and set up their rendering settings with the various sliders. After you hit 'save', look in the directory of the original OME Tiff for an `out.yaml` configuration file and an `out` directory of rendered images for use with Minerva Story.
 
 ### Packaging
 
