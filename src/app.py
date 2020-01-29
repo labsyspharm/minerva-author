@@ -75,11 +75,26 @@ def api_yaml():
 @cross_origin()
 def api_stories():
 
+    def format_arrow(a):
+        return {
+            'Point': a
+        }
+
+    def format_overlay(o):
+        return {
+            'x': o[0],
+            'y': o[1],
+            'width': o[2],
+            'height': o[3]
+        }
+
     def make_waypoints(d):
         for waypoint in d:
             yield {
                 'Name': waypoint['name'],
                 'Description': waypoint['text'],
+                'Arrows': list(map(format_arrow, waypoint['arrows'])),
+                'Overlays': list(map(format_overlay, waypoint['overlays'])),
                 'Group': waypoint['group'],
                 'Zoom': waypoint['zoom'],
                 'Pan': waypoint['pan'],
