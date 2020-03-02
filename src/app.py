@@ -9,13 +9,13 @@ from flask import jsonify
 from flask import request
 from flask import send_file 
 from flask import make_response
+from render_png import render_tile
 from render_png import render_tiles
 from render_jpg import render_color_tiles
 from flask_cors import CORS, cross_origin
 
 
 G = {
-    'u16_dir': None,
     'in_file': None,
     'channels': [],
     'loaded': False,
@@ -50,11 +50,12 @@ app.config['CORS_HEADERS'] = 'Content-Type'
 def root():
     return app.send_static_file('index.html')
 
-@app.route('/api/u16/<path:path>')
+@app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
-def u16_image(path):
-    image_path = os.path.join(G['u16_dir'], path)
-    return send_file(image_path, mimetype='image/png')
+def u16_image(channel, level, x, y):
+    img_io = render_tile(G['in_file'], 1024, len(G['channels']),
+                        int(level), int(x), int(y), int(channel))
+    return send_file(img_io, mimetype='image/png')
 
 @app.route('/api/out/<path:path>')
 @cross_origin()
@@ -213,7 +214,6 @@ def api_import():
         data = request.form
         csv_file = pathlib.Path(data['csvpath'])
         input_file = pathlib.Path(data['filepath'])
-        u16_dir = os.path.join(input_file.parent, 'u16')
         out_dir = os.path.join(input_file.parent, 'out')
         out_yaml = os.path.join(input_file.parent, 'out.yaml')
 
@@ -256,11 +256,8 @@ def api_import():
         labels = list(yield_labels(num_channels))
 
         if os.path.exists(input_file):
-            if not os.path.exists(u16_dir):
-                render_tiles(input_file, u16_dir, 1024, num_channels)
             G['out_yaml'] = str(out_yaml)
             G['out_dir'] = str(out_dir)
-            G['u16_dir'] = str(u16_dir)
             G['in_file'] = str(input_file)
             G['channels'] = labels
             G['loaded'] = True

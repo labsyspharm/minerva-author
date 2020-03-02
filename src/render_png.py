@@ -9,6 +9,29 @@ from skimage.exposure import adjust_gamma
 from PIL import Image
 import numpy as np
 import pytiff
+import io
+
+def render_tile(input_file, tile_size, num_channels, level, tx, ty, channel_number):
+
+    tiff = pytiff.Tiff(str(input_file), encoding='utf-8')
+
+    iy = ty * tile_size
+    ix = tx * tile_size
+    page_base = level * num_channels
+
+    tiff.set_page(page_base + channel_number)
+    tile = tiff[iy:iy+tile_size, ix:ix+tile_size]
+    tile = adjust_gamma(tile, 1/2.2)
+
+    array_buffer = tile.tobytes()
+    img = Image.new("I", tile.T.shape)
+    img.frombytes(array_buffer, 'raw', "I;16")
+
+    img_io = io.BytesIO()
+    img.save(img_io, 'PNG')
+    img_io.seek(0)
+    return img_io
+
 
 def render_tiles(input_file, output_dir, tile_size, num_channels):
 
