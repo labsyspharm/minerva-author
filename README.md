@@ -21,6 +21,14 @@ At minimum, you'll need to type one 'Group' name into the top dropdown to create
 
 ### Packaging
 
+#### MacOS
+
 ```
 pyinstaller -F --paths $CONDA_PREFIX --add-data 'static:static' src/app.py
+```
+
+#### Windows powershell
+
+```
+pyinstaller -F --paths $env:CONDA_PREFIX --add-data 'static;static' src/app.py
 ```
