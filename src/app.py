@@ -245,7 +245,8 @@ def api_import():
                     reader = csv.DictReader(cf)
                     for row in reader:
                         if num_labels < num_channels:
-                            yield row.get('marker_name', str(num_labels))
+                            default = row.get('marker_name', str(num_labels))
+                            yield row.get('Marker Name', default)
                             num_labels += 1
             except Exception as e:
                 pass
