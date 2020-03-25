@@ -2,6 +2,7 @@
 
 ```
 conda create --name author python=3.6
+conda activate author
 pip install -r requirements.txt
 ```
 
