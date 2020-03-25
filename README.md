@@ -1,8 +1,31 @@
-### Installing
+### Preparing to install
+
+#### On OSX
+
+Run the following command to install libtiff.
 
 ```
+brew install libtiff
+```
+
+#### On Windows
+
+Clone the pytiff source.
+
+```
+git clone https://github.com/FZJ-INM1-BDA/pytiff.git
+cd pytiff
+```
+
+Then [install pytiff from source](https://github.com/FZJ-INM1-BDA/pytiff#installation-on-windows).
+
+### Installing
+```
+git clone git@github.com:labsyspharm/minerva-author.git
+cd minerva-author
 conda create --name author python=3.6
 conda activate author
+pip install numpy
 pip install -r requirements.txt
 ```
 
