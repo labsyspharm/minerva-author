@@ -4,6 +4,9 @@ import os
 import csv
 import yaml
 import pytiff
+import pickle
+import webbrowser
+from threading import Timer
 from flask import Flask
 from flask import jsonify
 from flask import request
@@ -14,19 +17,26 @@ from render_png import render_tiles
 from render_jpg import render_color_tiles
 from flask_cors import CORS, cross_origin
 
-
-G = {
-    'in_file': None,
-    'channels': [],
-    'loaded': False,
-    'height': 1024,
-    'width': 1024
-}
-YAML = {
-    'Images': [],
-    'Layout': {'Grid': [['i0']]},
-    'Groups': []
-}
+def reset_globals():
+    _g = {
+        'in_file': None,
+        'csv_file': None,
+        'out_dir': None,
+        'out_dat': None,
+        'out_yaml': None,
+        'groups': [],
+        'waypoints': [],
+        'channels': [],
+        'loaded': False,
+        'height': 1024,
+        'width': 1024
+    }
+    _yaml = {
+        'Images': [],
+        'Layout': {'Grid': [['i0']]},
+        'Groups': []
+    }
+    return (_g, _yaml)
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -38,7 +48,7 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
-
+G, YAML = reset_globals()
 app = Flask(__name__,
             static_folder=resource_path('static'),
             static_url_path='')
@@ -48,6 +58,9 @@ app.config['CORS_HEADERS'] = 'Content-Type'
 
 @app.route('/')
 def root():
+    global G
+    global YAML
+    G, YAML = reset_globals()
     return app.send_static_file('index.html')
 
 @app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
@@ -78,7 +91,8 @@ def api_stories():
 
     def format_arrow(a):
         return {
-            'Point': a
+            'Point': a['position'],
+            'Text': a['text']
         }
 
     def format_overlay(o):
@@ -151,6 +165,20 @@ def api_minerva_yaml():
         return 'OK'
 
 
+@app.route('/api/save', methods=['POST'])
+@cross_origin()
+def api_save():
+    
+    if request.method == 'POST':
+        data = request.json
+        data['in_file'] = G['in_file']
+        data['csv_file'] = G['csv_file']
+
+        pickle.dump( data, open( G['out_dat'], 'wb' ) )
+
+        return 'OK'
+    
+
 
 @app.route('/api/render', methods=['POST'])
 @cross_origin()
@@ -205,6 +233,8 @@ def api_import():
 
         return jsonify({
             'loaded': G['loaded'],
+            'waypoints': G['waypoints'],
+            'groups': G['groups'],
             'channels': G['channels'],
             'height': G['height'],
             'width': G['width']
@@ -212,10 +242,21 @@ def api_import():
 
     if request.method == 'POST':
         data = request.form
-        csv_file = pathlib.Path(data['csvpath'])
         input_file = pathlib.Path(data['filepath'])
+        if (input_file.suffix == '.dat'):
+            saved = pickle.load( open( input_file, "rb" ) )
+            input_file = pathlib.Path(saved['in_file'])
+            if (data['csvpath']):
+                csv_file = pathlib.Path(data['csvpath'])
+            else:
+                csv_file = pathlib.Path(saved['csv_file'])
+            G['waypoints'] = saved['waypoints']
+            G['groups'] = saved['groups']
+        else:
+            csv_file = pathlib.Path(data['csvpath'])
         out_dir = os.path.join(input_file.parent, 'out')
         out_yaml = os.path.join(input_file.parent, 'out.yaml')
+        out_dat = os.path.join(input_file.parent, 'out.dat')
 
         num_channels = 0
 
@@ -258,13 +299,18 @@ def api_import():
 
         if os.path.exists(input_file):
             G['out_yaml'] = str(out_yaml)
+            G['out_dat'] = str(out_dat)
             G['out_dir'] = str(out_dir)
             G['in_file'] = str(input_file)
+            G['csv_file'] = str(csv_file)
             G['channels'] = labels
             G['loaded'] = True
 
         return 'OK'
 
+def open_browser():
+    webbrowser.open_new('http://127.0.0.1:2020/')
 
 if __name__ == '__main__':
+    Timer(1, open_browser).start()
     app.run(debug=True, port=2020)

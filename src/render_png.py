@@ -21,7 +21,7 @@ def render_tile(input_file, tile_size, num_channels, level, tx, ty, channel_numb
 
     tiff.set_page(page_base + channel_number)
     tile = tiff[iy:iy+tile_size, ix:ix+tile_size]
-    tile = adjust_gamma(tile, 1/2.2)
+    # tile = adjust_gamma(tile, 1/2.2)
 
     array_buffer = tile.tobytes()
     img = Image.new("I", tile.T.shape)
@@ -66,7 +66,7 @@ def render_tiles(input_file, output_dir, tile_size, num_channels):
 
                 tiff.set_page(page_base + channel_number)
                 tile = tiff[iy:iy+tile_size, ix:ix+tile_size]
-                tile = adjust_gamma(tile, 1/2.2)
+                # tile = adjust_gamma(tile, 1/2.2)
 
                 array_buffer = tile.tobytes()
                 img = Image.new("I", tile.T.shape)
