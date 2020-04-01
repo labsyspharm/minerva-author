@@ -173,6 +173,8 @@ def api_save():
         data = request.json
         data['in_file'] = G['in_file']
         data['csv_file'] = G['csv_file']
+        G['waypoints'] = data['waypoints']
+        G['groups'] = data['groups']
 
         pickle.dump( data, open( G['out_dat'], 'wb' ) )
 
