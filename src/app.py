@@ -17,6 +17,11 @@ from render_png import render_tiles
 from render_jpg import render_color_tiles
 from flask_cors import CORS, cross_origin
 
+def api_error(status, message):
+    return jsonify({
+        "error": message
+    }), status
+
 def reset_globals():
     _g = {
         'in_file': None,
@@ -245,11 +250,16 @@ def api_import():
     if request.method == 'POST':
         data = request.form
         input_file = pathlib.Path(data['filepath'])
+        if not os.path.exists(input_file):
+            return api_error(404, 'Image file not found: ' + str(input_file))
+
         if (input_file.suffix == '.dat'):
             saved = pickle.load( open( input_file, "rb" ) )
             input_file = pathlib.Path(saved['in_file'])
             if (data['csvpath']):
                 csv_file = pathlib.Path(data['csvpath'])
+                if not os.path.exists(csv_file):
+                    return api_error(404, 'Marker csv file not found: ' + str(csv_file))
             else:
                 csv_file = pathlib.Path(saved['csv_file'])
             G['waypoints'] = saved['waypoints']
@@ -262,24 +272,28 @@ def api_import():
 
         num_channels = 0
 
-        with pytiff.Tiff(str(input_file), encoding='utf-8') as handle:
+        try:
+            with pytiff.Tiff(str(input_file), encoding='utf-8') as handle:
 
-            for page in handle.pages:
-                if handle.shape == page.shape:
-                    num_channels += 1
-    
-            num_levels = handle.number_of_pages // num_channels
+                for page in handle.pages:
+                    if handle.shape == page.shape:
+                        num_channels += 1
 
-            YAML['Images'] = [{
-                'Name': 'i0',
-                'Description': '',
-                'Path': 'http://localhost:2020/api/out',
-                'Width': handle.shape[1],
-                'Height': handle.shape[0],
-                'MaxLevel': num_levels - 1
-            }]
-            G['height'] = handle.shape[0]
-            G['width'] = handle.shape[1]
+                num_levels = handle.number_of_pages // num_channels
+
+                YAML['Images'] = [{
+                    'Name': 'i0',
+                    'Description': '',
+                    'Path': 'http://localhost:2020/api/out',
+                    'Width': handle.shape[1],
+                    'Height': handle.shape[0],
+                    'MaxLevel': num_levels - 1
+                }]
+                G['height'] = handle.shape[0]
+                G['width'] = handle.shape[1]
+        except Exception as e:
+            print (e)
+            return api_error(500, 'Invalid tiff file')
 
         def yield_labels(num_channels): 
             num_labels = 0
@@ -292,7 +306,7 @@ def api_import():
                             yield row.get('Marker Name', default)
                             num_labels += 1
             except Exception as e:
-                pass
+                return api_error(500, "Error in opening marker csv file")
             while num_labels < num_channels:
                 yield str(num_labels)
                 num_labels += 1
