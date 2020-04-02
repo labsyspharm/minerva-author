@@ -306,12 +306,15 @@ def api_import():
                             yield row.get('Marker Name', default)
                             num_labels += 1
             except Exception as e:
-                return api_error(500, "Error in opening marker csv file")
+                if (str(csv_file) != '.'):
+                    return []
             while num_labels < num_channels:
                 yield str(num_labels)
                 num_labels += 1
 
         labels = list(yield_labels(num_channels))
+        if labels == []:
+            return api_error(500, "Error in opening marker csv file")
 
         if os.path.exists(input_file):
             G['out_yaml'] = str(out_yaml)
