@@ -266,9 +266,15 @@ def api_import():
             G['groups'] = saved['groups']
         else:
             csv_file = pathlib.Path(data['csvpath'])
-        out_dir = os.path.join(input_file.parent, 'out')
-        out_yaml = os.path.join(input_file.parent, 'out.yaml')
-        out_dat = os.path.join(input_file.parent, 'out.dat')
+
+        out_name = data['dataset']
+        if out_name == '':
+            out_name = 'out'
+
+        out_name = out_name.replace(' ', '_')
+        out_dir = os.path.join(input_file.parent, out_name)
+        out_yaml = os.path.join(input_file.parent, out_name+'.yaml')
+        out_dat = os.path.join(input_file.parent, out_name+'.dat')
 
         num_channels = 0
 
