@@ -16,6 +16,7 @@ from render_png import render_tile
 from render_png import render_tiles
 from render_jpg import render_color_tiles
 from flask_cors import CORS, cross_origin
+from pathlib import Path
 
 def api_error(status, message):
     return jsonify({
@@ -321,6 +322,54 @@ def api_import():
             G['loaded'] = True
 
         return 'OK'
+
+@app.route('/api/filebrowser', methods=['GET'])
+@cross_origin()
+def file_browser():
+    """
+    Browse local file system
+
+    Url parameters:
+        path: path to a directory
+        parent: if true, returns the contents of parent directory of given path
+    Returns:
+        Contents of the directory specified by path
+        (or parent directory, if parent parameter is set)
+    """
+    folder = request.args.get('path')
+    parent = request.args.get('parent')
+    print(parent)
+    if folder is None or folder == "":
+        folder = Path.home()
+    elif parent == 'true':
+        folder = Path(folder).parent
+
+    if not os.path.exists(folder):
+        return api_error(404, 'Path not found')
+
+    response = {
+        "entries": [],
+        "path": str(folder)
+    }
+    for entry in os.scandir(folder):
+        try:
+            is_directory = entry.is_dir()
+            new_entry = {
+                "name": entry.name,
+                "path": entry.path,
+                "isDir": is_directory
+            }
+            if not is_directory:
+                stat_result = entry.stat()
+                new_entry["size"] = stat_result.st_size
+                new_entry["ctime"] = stat_result.st_ctime
+                new_entry["mtime"] = stat_result.st_mtime
+            response["entries"].append(new_entry)
+        except PermissionError as e:
+            pass
+
+    return jsonify(response)
+
 
 def open_browser():
     webbrowser.open_new('http://127.0.0.1:2020/')
