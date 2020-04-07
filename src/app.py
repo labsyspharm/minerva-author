@@ -17,6 +17,8 @@ from render_png import render_tiles
 from render_jpg import render_color_tiles
 from flask_cors import CORS, cross_origin
 from pathlib import Path
+from waitress import serve
+import multiprocessing
 
 def api_error(status, message):
     return jsonify({
@@ -26,6 +28,7 @@ def api_error(status, message):
 def reset_globals():
     _g = {
         'in_file': None,
+        'tiff': None,
         'csv_file': None,
         'out_dir': None,
         'out_dat': None,
@@ -55,6 +58,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 G, YAML = reset_globals()
+tiff_lock = multiprocessing.Lock()
 app = Flask(__name__,
             static_folder=resource_path('static'),
             static_url_path='')
@@ -72,7 +76,12 @@ def root():
 @app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
 def u16_image(channel, level, x, y):
-    img_io = render_tile(G['in_file'], 1024, len(G['channels']),
+    if G['tiff'] is None:
+        tiff_lock.acquire()
+        G['tiff'] = pytiff.Tiff(G['in_file'], "r", encoding='utf-8')
+        tiff_lock.release()
+
+    img_io = render_tile(G['tiff'], 1024, len(G['channels']),
                         int(level), int(x), int(y), int(channel))
     return send_file(img_io, mimetype='image/png')
 
@@ -278,10 +287,8 @@ def api_import():
         out_dat = os.path.join(input_file.parent, out_name+'.dat')
 
         num_channels = 0
-
         try:
             with pytiff.Tiff(str(input_file), encoding='utf-8') as handle:
-
                 for page in handle.pages:
                     if handle.shape == page.shape:
                         num_channels += 1
@@ -387,4 +394,6 @@ def open_browser():
 
 if __name__ == '__main__':
     Timer(1, open_browser).start()
-    app.run(debug=False, port=2020)
+
+    #app.run(debug=False, port=2020)
+    serve(app, listen="*:2020", threads=10)

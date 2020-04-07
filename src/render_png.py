@@ -11,10 +11,7 @@ import numpy as np
 import pytiff
 import io
 
-def render_tile(input_file, tile_size, num_channels, level, tx, ty, channel_number):
-
-    tiff = pytiff.Tiff(str(input_file), encoding='utf-8')
-
+def render_tile(tiff, tile_size, num_channels, level, tx, ty, channel_number):
     iy = ty * tile_size
     ix = tx * tile_size
     page_base = level * num_channels
@@ -28,7 +25,7 @@ def render_tile(input_file, tile_size, num_channels, level, tx, ty, channel_numb
     img.frombytes(array_buffer, 'raw', "I;16")
 
     img_io = io.BytesIO()
-    img.save(img_io, 'PNG')
+    img.save(img_io, 'PNG', compress_level=1)
     img_io.seek(0)
     return img_io
 
