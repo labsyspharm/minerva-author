@@ -5,4 +5,5 @@ pyaml>=19.12.0
 pyinstaller>=3.5
 flask>=1.1.1
 scikit-image>=0.16.2
+waitress>=1.4.3
 git+https://github.com/FZJ-INM1-BDA/pytiff.git@0701f28e5862c26024e8daa34201005b16db4c8f

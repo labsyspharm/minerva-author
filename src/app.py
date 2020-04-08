@@ -17,6 +17,11 @@ from render_png import render_tiles
 from render_jpg import render_color_tiles
 from flask_cors import CORS, cross_origin
 from pathlib import Path
+from waitress import serve
+import multiprocessing
+import atexit
+
+PORT = 2020
 
 def api_error(status, message):
     return jsonify({
@@ -26,6 +31,7 @@ def api_error(status, message):
 def reset_globals():
     _g = {
         'in_file': None,
+        'tiff': None,
         'csv_file': None,
         'out_dir': None,
         'out_dat': None,
@@ -55,6 +61,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 G, YAML = reset_globals()
+tiff_lock = multiprocessing.Lock()
 app = Flask(__name__,
             static_folder=resource_path('static'),
             static_url_path='')
@@ -62,17 +69,28 @@ app = Flask(__name__,
 cors = CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
+def open_input_file():
+    tiff_lock.acquire()
+    if G['tiff'] is None:
+        G['tiff'] = pytiff.Tiff(G['in_file'], "r", encoding='utf-8')
+    tiff_lock.release()
+
 @app.route('/')
 def root():
     global G
     global YAML
+    close_tiff()
     G, YAML = reset_globals()
     return app.send_static_file('index.html')
 
 @app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
 def u16_image(channel, level, x, y):
-    img_io = render_tile(G['in_file'], 1024, len(G['channels']),
+    # Open the input file on the first request only
+    if G['tiff'] is None:
+        open_input_file()
+
+    img_io = render_tile(G['tiff'], 1024, len(G['channels']),
                         int(level), int(x), int(y), int(channel))
     return send_file(img_io, mimetype='image/png')
 
@@ -278,10 +296,9 @@ def api_import():
         out_dat = os.path.join(input_file.parent, out_name+'.dat')
 
         num_channels = 0
-
         try:
+            print("Opening file: ", str(input_file))
             with pytiff.Tiff(str(input_file), encoding='utf-8') as handle:
-
                 for page in handle.pages:
                     if handle.shape == page.shape:
                         num_channels += 1
@@ -291,7 +308,7 @@ def api_import():
                 YAML['Images'] = [{
                     'Name': 'i0',
                     'Description': '',
-                    'Path': 'http://localhost:2020/api/out',
+                    'Path': 'http://127.0.0.1:2020/api/out',
                     'Width': handle.shape[1],
                     'Height': handle.shape[0],
                     'MaxLevel': num_levels - 1
@@ -381,10 +398,23 @@ def file_browser():
 
     return jsonify(response)
 
+def close_tiff():
+    print("Closing tiff file")
+    if G['tiff'] is not None:
+        try:
+            G['tiff'].close()
+        except Exception as e:
+            print(e)
 
 def open_browser():
-    webbrowser.open_new('http://127.0.0.1:2020/')
+    webbrowser.open_new('http://127.0.0.1:' + str(PORT) + '/')
+
 
 if __name__ == '__main__':
     Timer(1, open_browser).start()
-    app.run(debug=False, port=2020)
+
+    atexit.register(close_tiff)
+    if '--dev' in sys.argv:
+        app.run(debug=False, port=PORT)
+    else:
+        serve(app, listen="127.0.0.1:" + str(PORT), threads=10)
