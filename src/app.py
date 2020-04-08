@@ -19,6 +19,9 @@ from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
 import multiprocessing
+import atexit
+
+PORT = 2020
 
 def api_error(status, message):
     return jsonify({
@@ -66,6 +69,12 @@ app = Flask(__name__,
 cors = CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
+def open_input_file():
+    tiff_lock.acquire()
+    if G['tiff'] is None:
+        G['tiff'] = pytiff.Tiff(G['in_file'], "r", encoding='utf-8')
+    tiff_lock.release()
+
 @app.route('/')
 def root():
     global G
@@ -76,10 +85,9 @@ def root():
 @app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
 def u16_image(channel, level, x, y):
+    # Open the input file on the first request only
     if G['tiff'] is None:
-        tiff_lock.acquire()
-        G['tiff'] = pytiff.Tiff(G['in_file'], "r", encoding='utf-8')
-        tiff_lock.release()
+        open_input_file()
 
     img_io = render_tile(G['tiff'], 1024, len(G['channels']),
                         int(level), int(x), int(y), int(channel))
@@ -288,6 +296,7 @@ def api_import():
 
         num_channels = 0
         try:
+            print("Opening file: ", str(input_file))
             with pytiff.Tiff(str(input_file), encoding='utf-8') as handle:
                 for page in handle.pages:
                     if handle.shape == page.shape:
@@ -298,7 +307,7 @@ def api_import():
                 YAML['Images'] = [{
                     'Name': 'i0',
                     'Description': '',
-                    'Path': 'http://localhost:2020/api/out',
+                    'Path': 'http://127.0.0.1:2020/api/out',
                     'Width': handle.shape[1],
                     'Height': handle.shape[0],
                     'MaxLevel': num_levels - 1
@@ -388,12 +397,20 @@ def file_browser():
 
     return jsonify(response)
 
+def close_tiff():
+    print("Closing tiff file")
+    if G['tiff'] is not None:
+        G['tiff'].close()
 
 def open_browser():
-    webbrowser.open_new('http://127.0.0.1:2020/')
+    webbrowser.open_new('http://127.0.0.1:' + str(PORT) + '/')
+
 
 if __name__ == '__main__':
     Timer(1, open_browser).start()
 
-    #app.run(debug=False, port=2020)
-    serve(app, listen="*:2020", threads=10)
+    atexit.register(close_tiff)
+    if '--dev' in sys.argv:
+        app.run(debug=False, port=PORT)
+    else:
+        serve(app, listen="127.0.0.1:" + str(PORT), threads=10)

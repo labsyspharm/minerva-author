@@ -11,7 +11,7 @@ import numpy as np
 import pytiff
 import io
 
-def render_tile(tiff, tile_size, num_channels, level, tx, ty, channel_number):
+def render_tile(tiff: pytiff.Tiff, tile_size, num_channels, level, tx, ty, channel_number):
     iy = ty * tile_size
     ix = tx * tile_size
     page_base = level * num_channels
@@ -30,7 +30,7 @@ def render_tile(tiff, tile_size, num_channels, level, tx, ty, channel_number):
     return img_io
 
 
-def render_tiles(input_file, output_dir, tile_size, num_channels):
+def render_tiles(input_file: str, output_dir, tile_size, num_channels):
 
     print('Processing:', str(input_file))
 
@@ -70,6 +70,7 @@ def render_tiles(input_file, output_dir, tile_size, num_channels):
                 img.frombytes(array_buffer, 'raw', "I;16")
 
                 img.save(str(output_path / group_dir / filename))
+
 
 if __name__ == "__main__":
 
