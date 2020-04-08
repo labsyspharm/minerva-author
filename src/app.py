@@ -41,7 +41,9 @@ def reset_globals():
         'channels': [],
         'loaded': False,
         'height': 1024,
-        'width': 1024
+        'width': 1024,
+        'save_progress': 0,
+        'save_progress_max': 0
     }
     _yaml = {
         'Images': [],
@@ -204,10 +206,23 @@ def api_save():
         return 'OK'
     
 
+def render_progress_callback(current, max):
+    G['save_progress'] = current
+    G['save_progress_max'] = max
+
+@app.route('/api/render/progress', methods=['GET'])
+@cross_origin()
+def get_render_progress():
+    return jsonify({
+        "progress": G['save_progress'],
+        "max": G['save_progress_max']
+    })
 
 @app.route('/api/render', methods=['POST'])
 @cross_origin()
 def api_render():
+    G['save_progress'] = 0
+    G['save_progress_max'] = 0
 
     def make_yaml(d):
         for group in d:
@@ -247,7 +262,7 @@ def api_render():
             wf.write(yaml_text)
 
         render_color_tiles(G['in_file'], G['out_dir'], 1024,
-                           len(G['channels']), config_rows)
+                           len(G['channels']), config_rows, progress_callback=render_progress_callback)
 
         return 'OK'
 

@@ -31,7 +31,17 @@ def composite_channel(target, image, color, range_min, range_max):
         target[:, :, i] += f_image * component
 
 
-def render_color_tiles(input_file, output_dir, tile_size, num_channels, config_rows):
+def _calculate_total_tiles(tiff, tile_size, num_levels, num_channels):
+    tiles = 0
+    for level in range(num_levels):
+        page_base = level * num_channels
+        tiff.set_page(page_base)
+        ny = int(np.ceil(tiff.shape[0] / tile_size))
+        nx = int(np.ceil(tiff.shape[1] / tile_size))
+        tiles += (nx * ny)
+    return tiles
+
+def render_color_tiles(input_file, output_dir, tile_size, num_channels, config_rows, progress_callback=None):
 
     EXT = 'jpg'
 
@@ -56,6 +66,9 @@ def render_color_tiles(input_file, output_dir, tile_size, num_channels, config_r
             }
         for key in render_groups[i['Group']]:
             render_groups[i['Group']][key].append(i[key])
+
+    total_tiles = _calculate_total_tiles(tiff, tile_size, num_levels, num_channels)
+    progress = 0
 
     for level in range(num_levels):
 
@@ -97,3 +110,7 @@ def render_color_tiles(input_file, output_dir, tile_size, num_channels, config_r
                 target_u8 = (target * 255).astype(np.uint8)
                 img = Image.frombytes('RGB', target.T.shape[1:], target_u8.tobytes())
                 img.save(str(output_path / group_dir / filename), quality=85)
+
+                progress += 1
+                progress_callback(progress, total_tiles)
+
