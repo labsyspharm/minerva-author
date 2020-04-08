@@ -95,7 +95,7 @@ def render_color_tiles(input_file, output_dir, tile_size, num_channels, config_r
                 if not (output_path / group_dir).exists():
                     (output_path / group_dir).mkdir(parents=True)
                 for i, (marker, color, start, end) in enumerate(zip(
-                    settings['Channel Number'], settings['Color'], 
+                    settings['Channel Number'], settings['Color'],
                     settings['Low'], settings['High']
                 )):
                     tiff.set_page(page_base + int(marker))
@@ -112,5 +112,6 @@ def render_color_tiles(input_file, output_dir, tile_size, num_channels, config_r
                 img.save(str(output_path / group_dir / filename), quality=85)
 
                 progress += 1
-                progress_callback(progress, total_tiles)
+                if progress_callback is not None:
+                    progress_callback(progress, total_tiles)
 
