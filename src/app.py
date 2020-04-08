@@ -79,6 +79,7 @@ def open_input_file():
 def root():
     global G
     global YAML
+    close_tiff()
     G, YAML = reset_globals()
     return app.send_static_file('index.html')
 
@@ -400,7 +401,10 @@ def file_browser():
 def close_tiff():
     print("Closing tiff file")
     if G['tiff'] is not None:
-        G['tiff'].close()
+        try:
+            G['tiff'].close()
+        except Exception as e:
+            print(e)
 
 def open_browser():
     webbrowser.open_new('http://127.0.0.1:' + str(PORT) + '/')
