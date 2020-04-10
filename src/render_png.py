@@ -10,14 +10,19 @@ from PIL import Image
 import numpy as np
 import pytiff
 import io
+from threading import Lock
+
+tiff_lock = Lock()
 
 def render_tile(tiff: pytiff.Tiff, tile_size, num_channels, level, tx, ty, channel_number):
     iy = ty * tile_size
     ix = tx * tile_size
     page_base = level * num_channels
 
-    tiff.set_page(page_base + channel_number)
-    tile = tiff[iy:iy+tile_size, ix:ix+tile_size]
+    with tiff_lock:
+        tiff.set_page(page_base + channel_number)
+        tile = tiff[iy:iy+tile_size, ix:ix+tile_size]
+
     # tile = adjust_gamma(tile, 1/2.2)
 
     array_buffer = tile.tobytes()
