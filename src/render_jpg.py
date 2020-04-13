@@ -100,7 +100,7 @@ def render_color_tiles(input_file, output_dir, tile_size, num_channels, config_r
                 )):
                     tiff.set_page(page_base + int(marker))
                     tile = tiff[iy:iy+tile_size, ix:ix+tile_size]
-                    tile = adjust_gamma(tile, 1/2.2)
+#                    tile = adjust_gamma(tile, 1/2.2)
                     if i == 0:
                         target = np.zeros(tile.shape + (3,), np.float32)
                     composite_channel(
