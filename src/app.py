@@ -117,8 +117,10 @@ def api_stories():
 
     def format_arrow(a):
         return {
+            'Text': a['text'],
+            'HideArrow': a['hide'],
             'Point': a['position'],
-            'Text': a['text']
+            'Angle': 60 if a['angle'] == '' else a['angle']
         }
 
     def format_overlay(o):
