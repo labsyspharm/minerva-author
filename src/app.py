@@ -36,6 +36,10 @@ def reset_globals():
         'out_dir': None,
         'out_dat': None,
         'out_yaml': None,
+        'sample_info': {
+            'name': '',
+            'text': ''
+        },
         'groups': [],
         'waypoints': [],
         'channels': [],
@@ -201,6 +205,7 @@ def api_save():
         data = request.json
         data['in_file'] = G['in_file']
         data['csv_file'] = G['csv_file']
+        G['sample_info'] = data['sample_info']
         G['waypoints'] = data['waypoints']
         G['groups'] = data['groups']
 
@@ -259,6 +264,8 @@ def api_render():
         data = request.json['groups']
         config_rows = list(make_rows(data))
         YAML['Groups'] = list(make_yaml(data))
+        YAML['Header'] = request.json['header']
+        YAML['Images'][0]['Description'] = request.json['image']['description']
 
         with open(G['out_yaml'], 'w') as wf:
             yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
@@ -277,6 +284,7 @@ def api_import():
         return jsonify({
             'loaded': G['loaded'],
             'waypoints': G['waypoints'],
+            'sample_info': G['sample_info'],
             'groups': G['groups'],
             'channels': G['channels'],
             'height': G['height'],
@@ -298,6 +306,7 @@ def api_import():
                     return api_error(404, 'Marker csv file not found: ' + str(csv_file))
             else:
                 csv_file = pathlib.Path(saved['csv_file'])
+            G['sample_info'] = saved['sample_info']
             G['waypoints'] = saved['waypoints']
             G['groups'] = saved['groups']
         else:
