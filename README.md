@@ -23,7 +23,8 @@ Then [install pytiff from source](https://github.com/FZJ-INM1-BDA/pytiff#install
 ```
 git clone git@github.com:labsyspharm/minerva-author.git
 cd minerva-author
-conda create --name author python=3.6
+conda config --add channels conda-forge
+conda create --name author python=3.6 nomkl
 conda activate author
 pip install numpy
 pip install -r requirements.txt
@@ -55,4 +56,12 @@ pyinstaller -F --paths $CONDA_PREFIX --add-data 'static:static' src/app.py
 
 ```
 pyinstaller -F --paths $env:CONDA_PREFIX --add-data 'static;static' src/app.py
+
+```
+
+```
+If pyinstaller gives the following error:  
+ModuleNotFoundError: No module named 'pkg_resources.py2_warn'  
+Add following parameter to pyinstaller command:
+--hidden-import="pkg_resources.py2_warn"
 ```
