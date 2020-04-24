@@ -180,6 +180,9 @@ def api_minerva_yaml():
         img = request.json['image']
 
         YAML['Groups'] = list(make_yaml(groups))
+        if not img['url'].endswith('/'):
+            img['url'] = img['url'] + '/'
+
         YAML['Images'] = [{
             'Name': 'i0',
             'Description': '',
