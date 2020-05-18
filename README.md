@@ -54,14 +54,9 @@ pyinstaller -F --paths $CONDA_PREFIX --add-data 'static:static' src/app.py
 
 #### Windows powershell
 
+Fetch OpenSlide binaries from https://openslide.org/download/#windows-binaries and save the .dll files to /src
 ```
-pyinstaller -F --paths $env:CONDA_PREFIX --add-data 'static;static' src/app.py
+pyinstaller -F --paths $env:CONDA_PREFIX --hidden-import="pkg_resources.py2_warn" --add-data 'static;static' src/app.py
 
 ```
 
-```
-If pyinstaller gives the following error:  
-ModuleNotFoundError: No module named 'pkg_resources.py2_warn'  
-Add following parameter to pyinstaller command:
---hidden-import="pkg_resources.py2_warn"
-```
