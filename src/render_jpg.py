@@ -14,6 +14,7 @@ from matplotlib import colors
 import csv
 import json
 import yaml
+import os
 from collections import OrderedDict
 
 def composite_channel(target, image, color, range_min, range_max):
@@ -31,28 +32,39 @@ def composite_channel(target, image, color, range_min, range_max):
         target[:, :, i] += f_image * component
 
 
-def _calculate_total_tiles(tiff, tile_size, num_levels, num_channels):
+def _calculate_total_tiles(opener, tile_size, num_levels, num_channels):
     tiles = 0
     for level in range(num_levels):
-        page_base = level * num_channels
-        tiff.set_page(page_base)
-        ny = int(np.ceil(tiff.shape[0] / tile_size))
-        nx = int(np.ceil(tiff.shape[1] / tile_size))
-        tiles += (nx * ny)
+        (nx, ny) = opener.get_level_tiles(level, tile_size)
+        tiles += nx * ny
+
     return tiles
 
-def render_color_tiles(input_file, output_dir, tile_size, num_channels, config_rows, progress_callback=None):
+def render_color_tiles(input_file, opener, output_dir, tile_size, num_channels, config_rows, progress_callback=None):
 
     EXT = 'jpg'
 
     print('Processing:', str(input_file))
 
     output_path = pathlib.Path(output_dir)
-    tiff = pytiff.Tiff(str(input_file), encoding='utf-8')
 
-    assert tiff.number_of_pages % num_channels == 0, "Pyramid/channel mismatch"
+    if not output_path.exists():
+        output_path.mkdir(parents=True)
 
-    num_levels = tiff.number_of_pages // num_channels
+    config_path = output_path / 'config.json'
+    old_rows = []
+
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            old_rows = json.load(f)
+
+    with open(config_path, 'w') as f:
+        json.dump(config_rows, f)
+
+    if opener.reader == 'pytiff':
+        assert opener.io.number_of_pages % num_channels == 0, "Pyramid/channel mismatch"
+
+    num_levels = opener.get_shape()[1]
 
     render_groups = OrderedDict()
     for i in config_rows:
@@ -67,21 +79,16 @@ def render_color_tiles(input_file, output_dir, tile_size, num_channels, config_r
         for key in render_groups[i['Group']]:
             render_groups[i['Group']][key].append(i[key])
 
-    total_tiles = _calculate_total_tiles(tiff, tile_size, num_levels, num_channels)
+    total_tiles = _calculate_total_tiles(opener, tile_size, num_levels, num_channels)
     progress = 0
 
     for level in range(num_levels):
 
-        page_base = level * num_channels
-        tiff.set_page(page_base)
-        ny = int(np.ceil(tiff.shape[0] / tile_size))
-        nx = int(np.ceil(tiff.shape[1] / tile_size))
+        (nx, ny) = opener.get_level_tiles(level, tile_size)
         print('    level {} ({} x {})'.format(level, ny, nx))
 
         for ty, tx in itertools.product(range(0, ny), range(0, nx)):
 
-            iy = ty * tile_size
-            ix = tx * tile_size
             filename = '{}_{}_{}.{}'.format(level, tx, ty, EXT)
 
             for name, settings in render_groups.items():
@@ -94,22 +101,11 @@ def render_color_tiles(input_file, output_dir, tile_size, num_channels, config_r
                 group_dir = name.replace(' ', '-') + '_' + channels
                 if not (output_path / group_dir).exists():
                     (output_path / group_dir).mkdir(parents=True)
-                for i, (marker, color, start, end) in enumerate(zip(
-                    settings['Channel Number'], settings['Color'],
-                    settings['Low'], settings['High']
-                )):
-                    tiff.set_page(page_base + int(marker))
-                    tile = tiff[iy:iy+tile_size, ix:ix+tile_size]
-#                    tile = adjust_gamma(tile, 1/2.2)
-                    if i == 0:
-                        target = np.zeros(tile.shape + (3,), np.float32)
-                    composite_channel(
-                        target, tile, colors.to_rgb(color), float(start), float(end)
-                    )
-                np.clip(target, 0, 1, out=target)
-                target_u8 = (target * 255).astype(np.uint8)
-                img = Image.frombytes('RGB', target.T.shape[1:], target_u8.tobytes())
-                img.save(str(output_path / group_dir / filename), quality=85)
+                output_file = str(output_path / group_dir / filename)
+
+                # Only save file if change in config rows
+                if not (os.path.exists(output_file) and config_rows == old_rows):
+                    opener.save_tile(output_file, settings, tile_size, level, tx, ty)
 
                 progress += 1
                 if progress_callback is not None:

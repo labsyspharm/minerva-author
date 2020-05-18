@@ -14,20 +14,12 @@ from threading import Lock
 
 tiff_lock = Lock()
 
-def render_tile(tiff: pytiff.Tiff, tile_size, num_channels, level, tx, ty, channel_number):
-    iy = ty * tile_size
-    ix = tx * tile_size
+def render_tile(opener, tile_size, num_channels, level, tx, ty, channel_number):
     page_base = level * num_channels
+    page = page_base + channel_number
 
     with tiff_lock:
-        tiff.set_page(page_base + channel_number)
-        tile = tiff[iy:iy+tile_size, ix:ix+tile_size]
-
-    # tile = adjust_gamma(tile, 1/2.2)
-
-    array_buffer = tile.tobytes()
-    img = Image.new("I", tile.T.shape)
-    img.frombytes(array_buffer, 'raw', "I;16")
+        img = opener.get_tile(page, tile_size, level, tx, ty, channel_number)
 
     img_io = io.BytesIO()
     img.save(img_io, 'PNG', compress_level=1)

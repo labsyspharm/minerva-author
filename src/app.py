@@ -6,6 +6,11 @@ import yaml
 import pytiff
 import pickle
 import webbrowser
+import numpy as np
+from PIL import Image
+from matplotlib import colors
+from openslide import OpenSlide
+from openslide.deepzoom import DeepZoomGenerator
 from threading import Timer
 from flask import Flask
 from flask import jsonify
@@ -13,7 +18,7 @@ from flask import request
 from flask import send_file 
 from flask import make_response
 from render_png import render_tile
-from render_png import render_tiles
+from render_jpg import composite_channel
 from render_jpg import render_color_tiles
 from flask_cors import CORS, cross_origin
 from pathlib import Path
@@ -23,6 +28,116 @@ import atexit
 
 PORT = 2020
 
+class Opener:
+
+    def __init__(self, path):
+        self.path = path
+        base, ext1 = os.path.splitext(path)
+        ext2 = os.path.splitext(base)[1]
+        ext = ext2 + ext1
+
+        if ext == '.ome.tif':
+            self.io = pytiff.Tiff(self.path, "r", encoding='utf-8')
+            self.reader = 'pytiff'
+        else:
+            self.io = OpenSlide(self.path)
+            self.dz = DeepZoomGenerator(self.io, tile_size=1024, overlap=0, limit_bounds=True) 
+            self.reader = 'openslide'
+
+    def close(self):
+        self.io.close()
+
+    def is_rgba(self):
+        if self.reader == 'pytiff':
+            return False
+
+        elif self.reader == 'openslide':
+            return True
+
+    def get_level_tiles(self, level, tile_size):
+        if self.reader == 'pytiff':
+            num_channels = self.get_shape()[0]
+            page_base = level * num_channels
+            self.io.set_page(page_base)
+            ny = int(np.ceil(self.io.shape[0] / tile_size))
+            nx = int(np.ceil(self.io.shape[1] / tile_size))
+            return (nx, ny)
+        elif self.reader == 'openslide':
+            l = self.dz.level_count - 1 - level
+            return self.dz.level_tiles[l]
+
+    def get_shape(self):
+        if self.reader == 'pytiff':
+
+            num_channels = 0
+            for page in self.io.pages:
+                if self.io.shape == page.shape:
+                    num_channels += 1
+
+            num_levels = self.io.number_of_pages // num_channels
+
+            return (num_channels, num_levels, self.io.shape[1], self.io.shape[0])
+
+        elif self.reader == 'openslide':
+
+            (width, height) = self.io.dimensions
+
+            def has_one_tile(counts):
+                return max(counts) == 1
+
+            small_levels = list(filter(has_one_tile, self.dz.level_tiles))
+            level_count = self.dz.level_count - len(small_levels)
+
+            return (3, level_count, width, height)
+
+    def get_tile(self, page, tile_size, level, tx, ty, channel_number):
+        
+        if self.reader == 'pytiff':
+            iy = ty * tile_size
+            ix = tx * tile_size
+
+            self.io.set_page(page)
+            tile = self.io[iy:iy+tile_size, ix:ix+tile_size]
+
+            array_buffer = tile.tobytes()
+            img = Image.new("I", tile.T.shape)
+            img.frombytes(array_buffer, 'raw', "I;16")
+            return img
+
+       
+        elif self.reader == 'openslide':
+            l = self.dz.level_count - 1 - level
+            img = self.dz.get_tile(l, (tx, ty))
+            return img
+
+    def save_tile(self, output_file, settings, tile_size, level, tx, ty):
+        if self.reader == 'pytiff':
+            iy = ty * tile_size
+            ix = tx * tile_size
+            for i, (marker, color, start, end) in enumerate(zip(
+                settings['Channel Number'], settings['Color'],
+                settings['Low'], settings['High']
+            )):
+                num_channels = self.get_shape()[0]
+                page_base = level * num_channels
+                self.io.set_page(page_base + int(marker))
+                tile = self.io[iy:iy+tile_size, ix:ix+tile_size]
+                if i == 0:
+                    target = np.zeros(tile.shape + (3,), np.float32)
+                composite_channel(
+                    target, tile, colors.to_rgb(color), float(start), float(end)
+                )
+            np.clip(target, 0, 1, out=target)
+            target_u8 = (target * 255).astype(np.uint8)
+            img = Image.frombytes('RGB', target.T.shape[1:], target_u8.tobytes())
+            img.save(output_file, quality=85)
+
+        elif self.reader == 'openslide':
+            l = self.dz.level_count - 1 - level
+            img = self.dz.get_tile(l, (tx, ty))
+            img.save(output_file, quality=85)
+
+
 def api_error(status, message):
     return jsonify({
         "error": message
@@ -31,7 +146,7 @@ def api_error(status, message):
 def reset_globals():
     _g = {
         'in_file': None,
-        'tiff': None,
+        'opener': None,
         'csv_file': None,
         'out_dir': None,
         'out_dat': None,
@@ -75,10 +190,10 @@ app = Flask(__name__,
 cors = CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
-def open_input_file():
+def open_input_file(path=None):
     tiff_lock.acquire()
-    if G['tiff'] is None:
-        G['tiff'] = pytiff.Tiff(G['in_file'], "r", encoding='utf-8')
+    if G['opener'] is None:
+        G['opener'] = Opener(path if path else G['in_file'])
     tiff_lock.release()
 
 @app.route('/')
@@ -92,11 +207,12 @@ def root():
 @app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
 def u16_image(channel, level, x, y):
+
     # Open the input file on the first request only
-    if G['tiff'] is None:
+    if G['opener'] is None:
         open_input_file()
 
-    img_io = render_tile(G['tiff'], 1024, len(G['channels']),
+    img_io = render_tile(G['opener'], 1024, len(G['channels']),
                         int(level), int(x), int(y), int(channel))
     return send_file(img_io, mimetype='image/png')
 
@@ -271,7 +387,7 @@ def api_render():
             yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
             wf.write(yaml_text)
 
-        render_color_tiles(G['in_file'], G['out_dir'], 1024,
+        render_color_tiles(G['in_file'], G['opener'], G['out_dir'], 1024,
                            len(G['channels']), config_rows, progress_callback=render_progress_callback)
 
         return 'OK'
@@ -288,7 +404,8 @@ def api_import():
             'groups': G['groups'],
             'channels': G['channels'],
             'height': G['height'],
-            'width': G['width']
+            'width': G['width'],
+            'rgba': G['opener'].is_rgba() if G['opener'] else False
         })
 
     if request.method == 'POST':
@@ -321,26 +438,26 @@ def api_import():
         out_yaml = os.path.join(input_file.parent, out_name+'.yaml')
         out_dat = os.path.join(input_file.parent, out_name+'.dat')
 
-        num_channels = 0
         try:
             print("Opening file: ", str(input_file))
-            with pytiff.Tiff(str(input_file), encoding='utf-8') as handle:
-                for page in handle.pages:
-                    if handle.shape == page.shape:
-                        num_channels += 1
 
-                num_levels = handle.number_of_pages // num_channels
+            if G['opener'] is None:
+                open_input_file(str(input_file))
 
-                YAML['Images'] = [{
-                    'Name': 'i0',
-                    'Description': '',
-                    'Path': 'http://127.0.0.1:2020/api/out',
-                    'Width': handle.shape[1],
-                    'Height': handle.shape[0],
-                    'MaxLevel': num_levels - 1
-                }]
-                G['height'] = handle.shape[0]
-                G['width'] = handle.shape[1]
+
+            (num_channels, num_levels, width, height) = G['opener'].get_shape()
+
+            YAML['Images'] = [{
+                'Name': 'i0',
+                'Description': '',
+                'Path': 'http://127.0.0.1:2020/api/out',
+                'Width': width,
+                'Height': height,
+                'MaxLevel': num_levels - 1
+            }]
+            G['height'] = height
+            G['width'] = width
+
         except Exception as e:
             print (e)
             return api_error(500, 'Invalid tiff file')
@@ -426,9 +543,9 @@ def file_browser():
 
 def close_tiff():
     print("Closing tiff file")
-    if G['tiff'] is not None:
+    if G['opener'] is not None:
         try:
-            G['tiff'].close()
+            G['opener'].close()
         except Exception as e:
             print(e)
 
