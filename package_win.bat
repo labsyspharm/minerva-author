@@ -1,0 +1,1 @@
+pyinstaller -F --paths $env:CONDA_PREFIX --hidden-import="pkg_resources.py2_warn" --add-data "static;static" src/app.py
