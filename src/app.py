@@ -1,4 +1,6 @@
 import pathlib
+import re
+import string
 import sys
 import os
 import csv
@@ -25,6 +27,9 @@ from pathlib import Path
 from waitress import serve
 import multiprocessing
 import atexit
+if os.name == 'nt':
+    from ctypes import windll
+
 
 PORT = 2020
 
@@ -517,8 +522,8 @@ def file_browser():
         (or parent directory, if parent parameter is set)
     """
     folder = request.args.get('path')
+    orig_folder = folder
     parent = request.args.get('parent')
-    print(parent)
     if folder is None or folder == "":
         folder = Path.home()
     elif parent == 'true':
@@ -531,6 +536,22 @@ def file_browser():
         "entries": [],
         "path": str(folder)
     }
+
+    # Windows: When navigating back from drive root, we have to show a list of available drives
+    if os.name == 'nt' and folder is not None and str(orig_folder) == str(folder) and parent == 'true':
+        match = re.search('[A-Za-z]:\\\\$', str(folder))  # C:\ or D:\ etc.
+        if match:
+            drives = _get_drives_win()
+            for drive in drives:
+                new_entry = {
+                    "name": drive + ":\\",
+                    "path": drive + ":\\",
+                    "isDir": True
+                }
+                response["entries"].append(new_entry)
+            return jsonify(response)
+
+    # Return a list of folders and files within the requested folder
     for entry in os.scandir(folder):
         try:
             is_directory = entry.is_dir()
@@ -549,6 +570,17 @@ def file_browser():
             pass
 
     return jsonify(response)
+
+# https://stackoverflow.com/a/827398
+def _get_drives_win():
+    drives = []
+    bitmask = windll.kernel32.GetLogicalDrives()
+    for letter in string.ascii_uppercase:
+        if bitmask & 1:
+            drives.append(letter)
+        bitmask >>= 1
+
+    return drives
 
 def close_tiff():
     print("Closing tiff file")
