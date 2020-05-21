@@ -152,6 +152,7 @@ def reset_globals():
         'out_dat': None,
         'out_yaml': None,
         'sample_info': {
+            'rotation': 0,
             'name': '',
             'text': ''
         },
@@ -427,6 +428,11 @@ def api_import():
             else:
                 csv_file = pathlib.Path(saved['csv_file'])
             G['sample_info'] = saved['sample_info']
+            try:
+                G['sample_info']['rotation']
+            except KeyError:
+                G['sample_info']['rotation'] = 0
+
             G['waypoints'] = saved['waypoints']
             G['groups'] = saved['groups']
         else:
