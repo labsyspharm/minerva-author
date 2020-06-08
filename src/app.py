@@ -46,7 +46,7 @@ class Opener:
             self.reader = 'pytiff'
             num_channels = self.get_shape()[0]
             tile_0 = self.get_pytiff_tile(1024, num_channels, 0,0,0,0)
-            if (num_channels == 3 && tile_0.dtype == 'uint8'):
+            if (num_channels == 3 and tile_0.dtype == 'uint8'):
                 self.rgba = True
             else:
                 self.rgba = False
