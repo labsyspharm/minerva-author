@@ -44,20 +44,23 @@ class Opener:
         if ext == '.ome.tif':
             self.io = pytiff.Tiff(self.path, "r", encoding='utf-8')
             self.reader = 'pytiff'
+            num_channels = self.get_shape()[0]
+            tile_0 = self.get_pytiff_tile(1024, num_channels, 0,0,0,0)
+            if (tile_0.dtype == 'uint8'):
+                self.rgba = True
+            else:
+                self.rgba = False
         else:
             self.io = OpenSlide(self.path)
             self.dz = DeepZoomGenerator(self.io, tile_size=1024, overlap=0, limit_bounds=True) 
             self.reader = 'openslide'
+            self.rgba = True
 
     def close(self):
         self.io.close()
 
     def is_rgba(self):
-        if self.reader == 'pytiff':
-            return False
-
-        elif self.reader == 'openslide':
-            return True
+        return self.rgba
 
     def get_level_tiles(self, level, tile_size):
         if self.reader == 'pytiff':
@@ -95,19 +98,32 @@ class Opener:
 
             return (3, level_count, width, height)
 
-    def get_tile(self, page, tile_size, level, tx, ty, channel_number):
+    def get_pytiff_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
         
         if self.reader == 'pytiff':
+
+            page_base = level * num_channels
+            page = page_base + channel_number
+
             iy = ty * tile_size
             ix = tx * tile_size
 
             self.io.set_page(page)
-            tile = self.io[iy:iy+tile_size, ix:ix+tile_size]
+            return self.io[iy:iy+tile_size, ix:ix+tile_size]
 
-            array_buffer = tile.tobytes()
-            img = Image.new("I", tile.T.shape)
-            img.frombytes(array_buffer, 'raw', "I;16")
-            return img
+    def get_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
+        
+        if self.reader == 'pytiff':
+ 
+            if self.is_rgba():
+                tile = np.zeros((tile_size, tile_size, 3), dtype=np.uint8)
+                tile[:,:,0] = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 0)
+                tile[:,:,1] = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 1)
+                tile[:,:,2] = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 2)
+            else:
+                tile = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, channel_number)
+
+            return Image.fromarray(tile)
 
        
         elif self.reader == 'openslide':
@@ -390,6 +406,7 @@ def api_render():
         config_rows = list(make_rows(data))
         YAML['Groups'] = list(make_yaml(data))
         YAML['Header'] = request.json['header']
+        YAML['Rotation'] = request.json['rotation']
         YAML['Images'][0]['Description'] = request.json['image']['description']
 
         with open(G['out_yaml'], 'w') as wf:
