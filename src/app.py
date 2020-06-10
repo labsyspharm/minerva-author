@@ -116,10 +116,13 @@ class Opener:
         if self.reader == 'pytiff':
  
             if self.is_rgba():
-                tile = np.zeros((tile_size, tile_size, 3), dtype=np.uint8)
-                tile[:,:,0] = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 0)
-                tile[:,:,1] = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 1)
-                tile[:,:,2] = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 2)
+                tile_0 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 0)
+                tile_1 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 1)
+                tile_2 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 2)
+                tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
+                tile[:,:,0] = tile_0
+                tile[:,:,1] = tile_1
+                tile[:,:,2] = tile_2
             else:
                 tile = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, channel_number)
 
@@ -132,7 +135,21 @@ class Opener:
             return img
 
     def save_tile(self, output_file, settings, tile_size, level, tx, ty):
-        if self.reader == 'pytiff':
+        if self.reader == 'pytiff' and self.is_rgba():
+
+            num_channels = self.get_shape()[0]
+            tile_0 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 0)
+            tile_1 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 1)
+            tile_2 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 2)
+            tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
+            tile[:,:,0] = tile_0
+            tile[:,:,1] = tile_1
+            tile[:,:,2] = tile_2
+
+            img = Image.fromarray(tile, 'RGB')
+            img.save(output_file, quality=85)
+
+        elif self.reader == 'pytiff':
             iy = ty * tile_size
             ix = tx * tile_size
             for i, (marker, color, start, end) in enumerate(zip(
