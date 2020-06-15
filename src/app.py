@@ -5,7 +5,8 @@ import sys
 import os
 import csv
 import yaml
-import pytiff
+from tifffile import TiffFile
+from tifffile import create_output
 import pickle
 import webbrowser
 import numpy as np
@@ -30,6 +31,8 @@ import atexit
 if os.name == 'nt':
     from ctypes import windll
 
+import ipdb
+
 
 PORT = 2020
 
@@ -41,11 +44,11 @@ class Opener:
         ext2 = os.path.splitext(base)[1]
         ext = ext2 + ext1
 
-        if ext == '.ome.tif':
-            self.io = pytiff.Tiff(self.path, "r", encoding='utf-8')
-            self.reader = 'pytiff'
+        if ext == '.ome.tif' or ext == '.ome.tiff':
+            self.io = TiffFile(self.path)
+            self.reader = 'tifffile'
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_pytiff_tile(1024, num_channels, 0,0,0,0)
+            tile_0 = self.get_tifffile_tile(1024, num_channels, 0,0,0,0)
             if (num_channels == 3 and tile_0.dtype == 'uint8'):
                 self.rgba = True
             else:
@@ -63,28 +66,33 @@ class Opener:
         return self.rgba
 
     def get_level_tiles(self, level, tile_size):
-        if self.reader == 'pytiff':
+        if self.reader == 'tifffile':
             num_channels = self.get_shape()[0]
             page_base = level * num_channels
-            self.io.set_page(page_base)
-            ny = int(np.ceil(self.io.shape[0] / tile_size))
-            nx = int(np.ceil(self.io.shape[1] / tile_size))
+            tile = self.get_tifffile_page(page_base).asarray()
+            ny = int(np.ceil(tile.shape[0] / tile_size))
+            nx = int(np.ceil(tile.shape[1] / tile_size))
             return (nx, ny)
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level
             return self.dz.level_tiles[l]
 
     def get_shape(self):
-        if self.reader == 'pytiff':
+        if self.reader == 'tifffile':
 
             num_channels = 0
+            num_pages = 0
+            base_shape = None
             for page in self.io.pages:
-                if self.io.shape == page.shape:
+                if base_shape is None:
+                    base_shape = page.shape
+                if base_shape == page.shape:
                     num_channels += 1
+                num_pages += 1
 
-            num_levels = self.io.number_of_pages // num_channels
+            num_levels = num_pages // num_channels
 
-            return (num_channels, num_levels, self.io.shape[1], self.io.shape[0])
+            return (num_channels, num_levels, base_shape[1], base_shape[0])
 
         elif self.reader == 'openslide':
 
@@ -98,33 +106,108 @@ class Opener:
 
             return (3, level_count, width, height)
 
-    def get_pytiff_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
-        
-        if self.reader == 'pytiff':
+    def get_tifffile_page(self, index, pages=None):
+        if pages == None:
+            pages = self.io.pages
 
-            page_base = level * num_channels
-            page = page_base + channel_number
+        for i, page in enumerate(pages):
+            if i == index:
+                return page
+        return None
+
+    def asarray(self, ifd):
+
+        out = None
+        lock = None
+        squeeze = True
+        maxworkers = None
+        keyframe = ifd.keyframe
+
+        fh = ifd.parent.filehandle
+        if lock is None:
+            lock = fh.lock
+        with lock:
+            closed = fh.closed
+            if closed:
+                if reopen:
+                    fh.open()
+                else:
+                    raise OSError(
+                        f'TiffPage {self.index}: file handle is closed')
+
+        # decode individual strips or tiles
+        result = create_output(out, keyframe.shaped, keyframe._dtype)
+        out = result[0]
+        keyframe.decode  # init TiffPage.decode function
+
+        def func(decoderesult, keyframe=keyframe, out=out):
+            # copy decoded segments to output array
+            segment, (_, s, d, l, w, _), shape = decoderesult
+            if segment is None:
+                segment = keyframe.nodata
+            else:
+                segment = segment[:keyframe.imagedepth - d,
+                                  :keyframe.imagelength - l,
+                                  :keyframe.imagewidth - w]
+            out[0,
+                d: d + shape[0],
+                l: l + shape[1],
+                w: w + shape[2]] = segment
+            # except IndexError:
+            #     pass  # corrupted files e.g. with too many strips
+
+        for _ in ifd.segments(
+            func=func, lock=lock, maxworkers=maxworkers, sort=True
+        ):
+            pass
+
+        result.shape = keyframe.shaped
+        if squeeze:
+            try:
+                result.shape = keyframe.shape
+            except ValueError:
+                log_warning(
+                    f'TiffPage {ifd.index}: '
+                    f'failed to reshape {result.shape} to {keyframe.shape}'
+                )
+
+        if closed:
+            # TODO: file should remain open if an exception occurred above
+            fh.close()
+        return result
+  
+
+    def get_tifffile_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
+        
+        if self.reader == 'tifffile':
+
+            idx = channel_number
 
             iy = ty * tile_size
             ix = tx * tile_size
 
-            self.io.set_page(page)
-            return self.io[iy:iy+tile_size, ix:ix+tile_size]
+            ifd = self.get_tifffile_page(idx)
+
+            if level != 0:
+                ifd = self.get_tifffile_page(level - 1, ifd.pages)
+
+            tile = self.asarray(ifd)
+            return tile[iy:iy+tile_size, ix:ix+tile_size]
 
     def get_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
         
-        if self.reader == 'pytiff':
+        if self.reader == 'tifffile':
  
             if self.is_rgba():
-                tile_0 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 0)
-                tile_1 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 1)
-                tile_2 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 2)
+                tile_0 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 0)
+                tile_1 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 1)
+                tile_2 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 2)
                 tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
                 tile[:,:,0] = tile_0
                 tile[:,:,1] = tile_1
                 tile[:,:,2] = tile_2
             else:
-                tile = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, channel_number)
+                tile = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, channel_number)
 
             return Image.fromarray(tile)
 
@@ -135,12 +218,12 @@ class Opener:
             return img
 
     def save_tile(self, output_file, settings, tile_size, level, tx, ty):
-        if self.reader == 'pytiff' and self.is_rgba():
+        if self.reader == 'tifffile' and self.is_rgba():
 
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 0)
-            tile_1 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 1)
-            tile_2 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 2)
+            tile_0 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 0)
+            tile_1 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 1)
+            tile_2 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 2)
             tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
             tile[:,:,0] = tile_0
             tile[:,:,1] = tile_1
@@ -149,7 +232,7 @@ class Opener:
             img = Image.fromarray(tile, 'RGB')
             img.save(output_file, quality=85)
 
-        elif self.reader == 'pytiff':
+        elif self.reader == 'tifffile':
             iy = ty * tile_size
             ix = tx * tile_size
             for i, (marker, color, start, end) in enumerate(zip(
@@ -157,9 +240,8 @@ class Opener:
                 settings['Low'], settings['High']
             )):
                 num_channels = self.get_shape()[0]
-                page_base = level * num_channels
-                self.io.set_page(page_base + int(marker))
-                tile = self.io[iy:iy+tile_size, ix:ix+tile_size]
+                tile = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, int(marker))
+
                 if i == 0:
                     target = np.zeros(tile.shape + (3,), np.float32)
                 composite_channel(
