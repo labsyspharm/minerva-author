@@ -5,6 +5,7 @@ import sys
 import os
 import csv
 import yaml
+import math
 from tifffile import TiffFile
 from tifffile import create_output
 import pickle
@@ -80,17 +81,16 @@ class Opener:
     def get_shape(self):
         if self.reader == 'tifffile':
 
+            num_levels = 0
             num_channels = 0
-            num_pages = 0
             base_shape = None
             for page in self.io.pages:
                 if base_shape is None:
                     base_shape = page.shape
-                if base_shape == page.shape:
-                    num_channels += 1
-                num_pages += 1
+                num_channels += 1
 
-            num_levels = num_pages // num_channels
+            for subpage in self.io.pages[0].pages:
+                num_levels += 1
 
             return (num_channels, num_levels, base_shape[1], base_shape[0])
 
@@ -106,93 +106,25 @@ class Opener:
 
             return (3, level_count, width, height)
 
-    def get_tifffile_page(self, index, pages=None):
-        if pages == None:
-            pages = self.io.pages
-
-        for i, page in enumerate(pages):
-            if i == index:
-                return page
-        return None
-
-    def asarray(self, ifd):
-
-        out = None
-        lock = None
-        squeeze = True
-        maxworkers = None
-        keyframe = ifd.keyframe
-
-        fh = ifd.parent.filehandle
-        if lock is None:
-            lock = fh.lock
-        with lock:
-            closed = fh.closed
-            if closed:
-                if reopen:
-                    fh.open()
-                else:
-                    raise OSError(
-                        f'TiffPage {self.index}: file handle is closed')
-
-        # decode individual strips or tiles
-        result = create_output(out, keyframe.shaped, keyframe._dtype)
-        out = result[0]
-        keyframe.decode  # init TiffPage.decode function
-
-        def func(decoderesult, keyframe=keyframe, out=out):
-            # copy decoded segments to output array
-            segment, (_, s, d, l, w, _), shape = decoderesult
-            if segment is None:
-                segment = keyframe.nodata
-            else:
-                segment = segment[:keyframe.imagedepth - d,
-                                  :keyframe.imagelength - l,
-                                  :keyframe.imagewidth - w]
-            out[0,
-                d: d + shape[0],
-                l: l + shape[1],
-                w: w + shape[2]] = segment
-            # except IndexError:
-            #     pass  # corrupted files e.g. with too many strips
-
-        for _ in ifd.segments(
-            func=func, lock=lock, maxworkers=maxworkers, sort=True
-        ):
-            pass
-
-        result.shape = keyframe.shaped
-        if squeeze:
-            try:
-                result.shape = keyframe.shape
-            except ValueError:
-                log_warning(
-                    f'TiffPage {ifd.index}: '
-                    f'failed to reshape {result.shape} to {keyframe.shape}'
-                )
-
-        if closed:
-            # TODO: file should remain open if an exception occurred above
-            fh.close()
-        return result
-  
-
     def get_tifffile_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
         
         if self.reader == 'tifffile':
 
-            idx = channel_number
-
-            iy = ty * tile_size
-            ix = tx * tile_size
-
-            ifd = self.get_tifffile_page(idx)
+            ifd = self.io.pages[channel_number]
 
             if level != 0:
-                ifd = self.get_tifffile_page(level - 1, ifd.pages)
+                ifd = ifd.pages[level - 1]
 
-            tile = self.asarray(ifd)
-            return tile[iy:iy+tile_size, ix:ix+tile_size]
+            row_n = math.ceil(ifd.shape[1] / tile_size)
+            row_i = ty * row_n + tx
+
+            offset = ifd._offsetscounts[0][row_i]
+            count = ifd._offsetscounts[1][row_i]
+
+            data, segmentindex = next(self.io.filehandle.read_segments([offset], [count]))
+            tile, index, shape = ifd.decode(data, segmentindex)
+
+            return np.squeeze(tile)
 
     def get_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
         
