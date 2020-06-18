@@ -32,8 +32,6 @@ import atexit
 if os.name == 'nt':
     from ctypes import windll
 
-import ipdb
-
 
 PORT = 2020
 
