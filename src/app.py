@@ -48,12 +48,22 @@ class Opener:
         if ext == '.ome.tif' or ext == '.ome.tiff':
             self.io = TiffFile(self.path)
             self.reader = 'tifffile'
+            self.ome_version = 5
             num_channels = self.get_shape()[0]
             tile_0 = self.get_tifffile_tile(1024, num_channels, 0,0,0,0)
             if (num_channels == 3 and tile_0.dtype == 'uint8'):
                 self.rgba = True
             else:
                 self.rgba = False
+
+            sub_ifds = None
+            try:
+                sub_ifds = self.io.pages[0].tags[330].value
+            except Exception as e:
+                pass
+
+            if ("Faas" not in self.io.pages[0].tags[305].value or sub_ifds is not None):
+                self.ome_version = 6
         else:
             self.io = OpenSlide(self.path)
             self.dz = DeepZoomGenerator(self.io, tile_size=1024, overlap=0, limit_bounds=True) 
@@ -70,7 +80,7 @@ class Opener:
         if self.reader == 'tifffile':
             num_channels = self.get_shape()[0]
             page_base = level * num_channels
-            tile = self.get_tifffile_page(page_base).asarray()
+            tile = self.io.pages[page_base].asarray()
             ny = int(np.ceil(tile.shape[0] / tile_size))
             nx = int(np.ceil(tile.shape[1] / tile_size))
             return (nx, ny)
@@ -81,18 +91,36 @@ class Opener:
     def get_shape(self):
         if self.reader == 'tifffile':
 
-            num_levels = 0
-            num_channels = 0
-            base_shape = None
-            for page in self.io.pages:
-                if base_shape is None:
-                    base_shape = page.shape
-                num_channels += 1
+            if self.ome_version == 5:
+                
+                num_channels = 0
+                num_pages = 0
+                base_shape = None
+                for page in self.io.pages:
+                    if base_shape is None:
+                        base_shape = page.shape
+                    if base_shape == page.shape:
+                        num_channels += 1
+                    num_pages += 1
 
-            for subpage in self.io.pages[0].pages:
-                num_levels += 1
+                num_levels = num_pages // num_channels
 
-            return (num_channels, num_levels, base_shape[1], base_shape[0])
+                return (num_channels, num_levels, base_shape[1], base_shape[0])
+
+            if self.ome_version == 6:
+
+                num_levels = 0
+                num_channels = 0
+                base_shape = None
+                for page in self.io.pages:
+                    if base_shape is None:
+                        base_shape = page.shape
+                    num_channels += 1
+
+                for subpage in self.io.pages[0].pages:
+                    num_levels += 1
+
+                return (num_channels, num_levels, base_shape[1], base_shape[0])
 
         elif self.reader == 'openslide':
 
@@ -110,21 +138,41 @@ class Opener:
         
         if self.reader == 'tifffile':
 
-            ifd = self.io.pages[channel_number]
+            if self.ome_version == 5:
 
-            if level != 0:
-                ifd = ifd.pages[level - 1]
+                page_base = level * num_channels
+                page = page_base + channel_number
+                ifd = self.io.pages[page]
 
-            row_n = math.ceil(ifd.shape[1] / tile_size)
-            row_i = ty * row_n + tx
+                row_n = math.ceil(ifd.shape[1] / tile_size)
+                row_i = ty * row_n + tx
 
-            offset = ifd._offsetscounts[0][row_i]
-            count = ifd._offsetscounts[1][row_i]
+                offset = ifd._offsetscounts[0][row_i]
+                count = ifd._offsetscounts[1][row_i]
 
-            data, segmentindex = next(self.io.filehandle.read_segments([offset], [count]))
-            tile, index, shape = ifd.decode(data, segmentindex)
+                data, segmentindex = next(self.io.filehandle.read_segments([offset], [count]))
+                tile, index, shape = ifd.decode(data, segmentindex)
 
-            return np.squeeze(tile)
+                return np.squeeze(tile)
+
+
+            if self.ome_version == 6:
+
+                ifd = self.io.pages[channel_number]
+
+                if level != 0:
+                    ifd = ifd.pages[level - 1]
+
+                row_n = math.ceil(ifd.shape[1] / tile_size)
+                row_i = ty * row_n + tx
+
+                offset = ifd._offsetscounts[0][row_i]
+                count = ifd._offsetscounts[1][row_i]
+
+                data, segmentindex = next(self.io.filehandle.read_segments([offset], [count]))
+                tile, index, shape = ifd.decode(data, segmentindex)
+
+                return np.squeeze(tile)
 
     def get_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
         
