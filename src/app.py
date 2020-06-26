@@ -22,6 +22,7 @@ from flask import make_response
 from render_png import render_tile
 from render_jpg import composite_channel
 from render_jpg import render_color_tiles
+from storyexport import create_story_base, get_story_folders
 from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
@@ -112,23 +113,22 @@ class Opener:
             return self.io[iy:iy+tile_size, ix:ix+tile_size]
 
     def get_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
-        
+
         if self.reader == 'pytiff':
- 
+
             if self.is_rgba():
                 tile_0 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 0)
                 tile_1 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 1)
                 tile_2 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 2)
                 tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
-                tile[:,:,0] = tile_0
-                tile[:,:,1] = tile_1
-                tile[:,:,2] = tile_2
+                tile[:, :, 0] = tile_0
+                tile[:, :, 1] = tile_1
+                tile[:, :, 2] = tile_2
             else:
                 tile = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, channel_number)
 
             return Image.fromarray(tile)
 
-       
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level
             img = self.dz.get_tile(l, (tx, ty))
@@ -367,6 +367,12 @@ def api_save():
         G['waypoints'] = data['waypoints']
         G['groups'] = data['groups']
 
+        out_dir, out_yaml, out_dat = get_story_folders(G['out_name'])
+
+        G['out_dat'] = out_dat
+        G['out_yaml'] = out_yaml
+        G['out_dir'] = out_dir
+
         pickle.dump( data, open( G['out_dat'], 'wb' ) )
 
         return 'OK'
@@ -424,7 +430,14 @@ def api_render():
         YAML['Groups'] = list(make_yaml(data))
         YAML['Header'] = request.json['header']
         YAML['Rotation'] = request.json['rotation']
-        YAML['Images'][0]['Description'] = request.json['image']['description']
+        sample_name = request.json['image']['description']
+        YAML['Images'][0]['Description'] = sample_name
+        YAML['Images'][0]['Path'] = '/images/' + G['out_name']
+
+        create_story_base(G['out_name'])
+
+        out_dir, out_yaml, out_dat = get_story_folders(G['out_name'])
+        G['out_yaml'] = out_yaml
 
         with open(G['out_yaml'], 'w') as wf:
             yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
@@ -434,6 +447,7 @@ def api_render():
                            len(G['channels']), config_rows, progress_callback=render_progress_callback)
 
         return 'OK'
+
 
 @app.route('/api/import', methods=['GET', 'POST'])
 @cross_origin()
@@ -481,10 +495,7 @@ def api_import():
         if out_name == '':
             out_name = 'out'
 
-        out_name = out_name.replace(' ', '_')
-        out_dir = os.path.join(input_file.parent, out_name)
-        out_yaml = os.path.join(input_file.parent, out_name+'.yaml')
-        out_dat = os.path.join(input_file.parent, out_name+'.dat')
+        out_dir, out_yaml, out_dat = get_story_folders(out_name)
 
         try:
             print("Opening file: ", str(input_file))
@@ -535,6 +546,7 @@ def api_import():
             G['out_yaml'] = str(out_yaml)
             G['out_dat'] = str(out_dat)
             G['out_dir'] = str(out_dir)
+            G['out_name'] = out_name
             G['in_file'] = str(input_file)
             G['csv_file'] = str(csv_file)
             G['channels'] = labels
