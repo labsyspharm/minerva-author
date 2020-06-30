@@ -48,11 +48,16 @@ class Opener:
             self.reader = 'tifffile'
             self.ome_version = 5
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_tifffile_tile(1024, num_channels, 0,0,0,0)
+            tile_0 = self.get_tifffile_tile(num_channels, 0,0,0,0)
             if (num_channels == 3 and tile_0.dtype == 'uint8'):
                 self.rgba = True
+                self.rgba_type = '3 channel'
+            elif (num_channels == 1 and tile_0.dtype == 'uint8'):
+                self.rgba = True
+                self.rgba_type = '1 channel'
             else:
                 self.rgba = False
+                self.rgba_type = None
 
             sub_ifds = None
             try:
@@ -71,8 +76,11 @@ class Opener:
     def close(self):
         self.io.close()
 
-    def is_rgba(self):
-        return self.rgba
+    def is_rgba(self, rgba_type=None):
+        if rgba_type is None:
+            return self.rgba
+        else:
+            return self.rgba and rgba_type == self.rgba_type
 
     def get_level_tiles(self, level, tile_size):
         if self.reader == 'tifffile':
@@ -132,7 +140,7 @@ class Opener:
 
             return (3, level_count, width, height)
 
-    def get_tifffile_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
+    def get_tifffile_tile(self, num_channels, level, tx, ty, channel_number):
         
         if self.reader == 'tifffile':
 
@@ -142,7 +150,7 @@ class Opener:
                 page = page_base + channel_number
                 ifd = self.io.pages[page]
 
-                row_n = math.ceil(ifd.shape[1] / tile_size)
+                row_n = math.ceil(ifd.shape[1] / ifd.tilewidth)
                 row_i = ty * row_n + tx
 
                 offset = ifd._offsetscounts[0][row_i]
@@ -161,7 +169,7 @@ class Opener:
                 if level != 0:
                     ifd = ifd.pages[level - 1]
 
-                row_n = math.ceil(ifd.shape[1] / tile_size)
+                row_n = math.ceil(ifd.shape[1] / ifd.tilewidth)
                 row_i = ty * row_n + tx
 
                 offset = ifd._offsetscounts[0][row_i]
@@ -176,16 +184,16 @@ class Opener:
         
         if self.reader == 'tifffile':
  
-            if self.is_rgba():
-                tile_0 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 0)
-                tile_1 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 1)
-                tile_2 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 2)
+            if self.is_rgba('3 channel'):
+                tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0)
+                tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1)
+                tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2)
                 tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
                 tile[:,:,0] = tile_0
                 tile[:,:,1] = tile_1
                 tile[:,:,2] = tile_2
             else:
-                tile = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, channel_number)
+                tile = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
 
             return Image.fromarray(tile)
 
@@ -196,16 +204,24 @@ class Opener:
             return img
 
     def save_tile(self, output_file, settings, tile_size, level, tx, ty):
-        if self.reader == 'tifffile' and self.is_rgba():
+        if self.reader == 'tifffile' and self.is_rgba('3 channel'):
 
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 0)
-            tile_1 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 1)
-            tile_2 = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, 2)
+            tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0)
+            tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1)
+            tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2)
             tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
             tile[:,:,0] = tile_0
             tile[:,:,1] = tile_1
             tile[:,:,2] = tile_2
+
+            img = Image.fromarray(tile, 'RGB')
+            img.save(output_file, quality=85)
+
+        elif self.reader == 'tifffile' and self.is_rgba('1 channel'):
+
+            num_channels = self.get_shape()[0]
+            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0)
 
             img = Image.fromarray(tile, 'RGB')
             img.save(output_file, quality=85)
@@ -218,7 +234,7 @@ class Opener:
                 settings['Low'], settings['High']
             )):
                 num_channels = self.get_shape()[0]
-                tile = self.get_tifffile_tile(tile_size, num_channels, level, tx, ty, int(marker))
+                tile = self.get_tifffile_tile(num_channels, level, tx, ty, int(marker))
 
                 if i == 0:
                     target = np.zeros(tile.shape + (3,), np.float32)
