@@ -40,7 +40,7 @@ def _calculate_total_tiles(opener, tile_size, num_levels, num_channels):
 
     return tiles
 
-def render_color_tiles(input_file, opener, output_dir, tile_size, num_channels, config_rows, progress_callback=None):
+def render_color_tiles(input_file, opener, output_dir, tile_size, num_channels, config_rows, logger, progress_callback=None):
 
     EXT = 'jpg'
 
@@ -82,6 +82,9 @@ def render_color_tiles(input_file, opener, output_dir, tile_size, num_channels, 
     total_tiles = _calculate_total_tiles(opener, tile_size, num_levels, num_channels)
     progress = 0
 
+    if num_levels < 2:
+        logger.warning(f'Number of levels {num_levels} < 2')
+
     for level in range(num_levels):
 
         (nx, ny) = opener.get_level_tiles(level, tile_size)
@@ -106,6 +109,9 @@ def render_color_tiles(input_file, opener, output_dir, tile_size, num_channels, 
                 # Only save file if change in config rows
                 if not (os.path.exists(output_file) and config_rows == old_rows):
                     opener.save_tile(output_file, settings, tile_size, level, tx, ty)
+                else:
+                    logger.warning(f'Not saving tile level {level} ty {ty} tx {tx}')
+                    logger.warning(f'Path {output_file} exists and config rows match {config_path}')
 
                 progress += 1
                 if progress_callback is not None:

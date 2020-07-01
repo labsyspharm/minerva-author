@@ -28,6 +28,7 @@ from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
 import multiprocessing
+import logging
 import atexit
 if os.name == 'nt':
     from ctypes import windll
@@ -265,6 +266,7 @@ def reset_globals():
         'out_dir': None,
         'out_dat': None,
         'out_yaml': None,
+        'logger': logging.getLogger('app'),
         'sample_info': {
             'rotation': 0,
             'name': '',
@@ -507,7 +509,7 @@ def api_render():
             wf.write(yaml_text)
 
         render_color_tiles(G['in_file'], G['opener'], G['out_dir'], 1024,
-                           len(G['channels']), config_rows, progress_callback=render_progress_callback)
+                           len(G['channels']), config_rows, G['logger'], progress_callback=render_progress_callback)
 
         return 'OK'
 
@@ -559,6 +561,7 @@ def api_import():
 
         out_name = out_name.replace(' ', '_')
         out_dir = os.path.join(input_file.parent, out_name)
+        out_log = os.path.join(input_file.parent, out_name+'.log')
         out_yaml = os.path.join(input_file.parent, out_name+'.yaml')
         out_dat = os.path.join(input_file.parent, out_name+'.dat')
 
@@ -607,6 +610,16 @@ def api_import():
         if labels == []:
             return api_error(500, "Error in opening marker csv file")
 
+        fh = logging.FileHandler(str(out_log))
+        fh.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.ERROR)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        ch.setFormatter(formatter)
+        fh.setFormatter(formatter)
+        G['logger'].addHandler(ch)
+        G['logger'].addHandler(fh)
+
         if os.path.exists(input_file):
             G['out_yaml'] = str(out_yaml)
             G['out_dat'] = str(out_dat)
@@ -615,6 +628,8 @@ def api_import():
             G['csv_file'] = str(csv_file)
             G['channels'] = labels
             G['loaded'] = True
+        else:
+            G['logger'].error(f'Input file {input_file} does not exist')
 
         return 'OK'
 
