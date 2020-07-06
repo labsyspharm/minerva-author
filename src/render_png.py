@@ -14,10 +14,10 @@ from threading import Lock
 
 tiff_lock = Lock()
 
-def render_tile(opener, tile_size, num_channels, level, tx, ty, channel_number):
+def render_tile(opener, num_channels, level, tx, ty, channel_number):
 
     with tiff_lock:
-        img = opener.get_tile(tile_size, num_channels, level, tx, ty, channel_number)
+        img = opener.get_tile(num_channels, level, tx, ty, channel_number)
 
     img_io = io.BytesIO()
     img.save(img_io, 'PNG', compress_level=1)

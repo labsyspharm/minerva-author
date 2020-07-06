@@ -108,7 +108,10 @@ def render_color_tiles(input_file, opener, output_dir, tile_size, num_channels, 
 
                 # Only save file if change in config rows
                 if not (os.path.exists(output_file) and config_rows == old_rows):
-                    opener.save_tile(output_file, settings, tile_size, level, tx, ty)
+                    try:
+                        opener.save_tile(output_file, settings, tile_size, level, tx, ty)
+                    except AttributeError as e:
+                        logger.error(f'{level} ty {ty} tx {tx}: {e}')
                 else:
                     logger.warning(f'Not saving tile level {level} ty {ty} tx {tx}')
                     logger.warning(f'Path {output_file} exists and config rows match {config_path}')
