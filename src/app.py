@@ -237,6 +237,9 @@ def open_input_file(path=None):
 
 @app.route('/')
 def root():
+    """
+    Serves the minerva-author web UI
+    """
     global G
     global YAML
     close_tiff()
@@ -246,6 +249,17 @@ def root():
 @app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
 def u16_image(channel, level, x, y):
+    """
+    Returns a single channel 16-bit tile from the image
+    Args:
+        channel: Image channel
+        level: Pyramid level
+        x: Tile coordinate x
+        y: Tile coordinate y
+
+    Returns: Tile image in png format
+
+    """
 
     # Open the input file on the first request only
     if G['opener'] is None:
@@ -358,7 +372,11 @@ def api_minerva_yaml():
 @app.route('/api/save', methods=['POST'])
 @cross_origin()
 def api_save():
-    
+    """
+    Saves minerva-author project information in dat-file.
+    Returns: OK on success
+
+    """
     if request.method == 'POST':
         data = request.json
         data['in_file'] = G['in_file']
@@ -385,6 +403,11 @@ def render_progress_callback(current, max):
 @app.route('/api/render/progress', methods=['GET'])
 @cross_origin()
 def get_render_progress():
+    """
+    Returns progress of rendering of tiles (0-100). The progress bar in minerva-author-ui uses this endpoint.
+    Returns: JSON which contains progress and max
+
+    """
     return jsonify({
         "progress": G['save_progress'],
         "max": G['save_progress_max']
@@ -393,6 +416,11 @@ def get_render_progress():
 @app.route('/api/render', methods=['POST'])
 @cross_origin()
 def api_render():
+    """
+    Renders all image tiles and saves them under new minerva-story instance.
+    Returns: OK on success
+
+    """
     G['save_progress'] = 0
     G['save_progress_max'] = 0
 
@@ -558,7 +586,7 @@ def api_import():
 @cross_origin()
 def file_browser():
     """
-    Browse local file system
+    Endpoint which allows browsing the local file system
 
     Url parameters:
         path: path to a directory
@@ -617,6 +645,7 @@ def file_browser():
 
     return jsonify(response)
 
+# Returns a list of drive letters in Windows
 # https://stackoverflow.com/a/827398
 def _get_drives_win():
     drives = []

@@ -1,16 +1,23 @@
 import os, sys
 from distutils import dir_util
 
+
 def create_story_base(title):
+    """
+    Creates a new minerva-story instance under subfolder named title. The subfolder will be created.
+    Args:
+        title: Story title, the subfolder will be named
+    """
     get_story_folders(title, True)
 
     current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
     export_dir = os.path.join(current_dir, title)
 
     try:
-        # If using pyinstaller executable, _MEIPASS will contain path to the data directory in tmp
+        # If running pyinstaller executable, _MEIPASS will contain path to the data directory in tmp
         story_dir = os.path.join(sys._MEIPASS, 'minerva-story')
     except Exception:
+        # Not running pyinstaller executable; minerva-story should exist in parent directory
         story_dir = os.path.join(current_dir, '..', 'minerva-story')
 
     exported_story_dir = os.path.join(export_dir, 'minerva-story')
@@ -28,6 +35,14 @@ figure: {title}
         f.write(markdown)
 
 def get_story_folders(title, create=False):
+    """
+    Gets paths to folders where image tiles, yaml and dat-file must be saved.
+    Args:
+        title: Story title
+        create: Whether folders should be created
+
+    Returns: Tuple of images dir, yaml dir, dat dir
+    """
     out_name = title.replace(' ', '_')
     folder = os.path.dirname(os.path.abspath(sys.argv[0]))
     images_folder = os.path.join(folder, out_name, 'minerva-story', 'images')
