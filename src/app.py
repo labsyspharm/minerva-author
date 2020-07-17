@@ -5,7 +5,9 @@ import sys
 import os
 import csv
 import yaml
-import pytiff
+import math
+from tifffile import TiffFile
+from tifffile import create_output
 import pickle
 import webbrowser
 import numpy as np
@@ -27,6 +29,7 @@ from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
 import multiprocessing
+import logging
 import atexit
 if os.name == 'nt':
     from ctypes import windll
@@ -38,19 +41,35 @@ class Opener:
 
     def __init__(self, path):
         self.path = path
+        self.tilesize = 1024
         base, ext1 = os.path.splitext(path)
         ext2 = os.path.splitext(base)[1]
         ext = ext2 + ext1
 
-        if ext == '.ome.tif':
-            self.io = pytiff.Tiff(self.path, "r", encoding='utf-8')
-            self.reader = 'pytiff'
+        if ext == '.ome.tif' or ext == '.ome.tiff':
+            self.io = TiffFile(self.path)
+            self.reader = 'tifffile'
+            self.ome_version = 5
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_pytiff_tile(1024, num_channels, 0,0,0,0)
+            tile_0 = self.get_tifffile_tile(num_channels, 0,0,0,0)
             if (num_channels == 3 and tile_0.dtype == 'uint8'):
                 self.rgba = True
+                self.rgba_type = '3 channel'
+            elif (num_channels == 1 and tile_0.dtype == 'uint8'):
+                self.rgba = True
+                self.rgba_type = '1 channel'
             else:
                 self.rgba = False
+                self.rgba_type = None
+
+            sub_ifds = None
+            try:
+                sub_ifds = self.io.pages[0].tags[330].value
+            except Exception as e:
+                pass
+
+            if ("Faas" not in self.io.pages[0].tags[305].value or sub_ifds is not None):
+                self.ome_version = 6
         else:
             self.io = OpenSlide(self.path)
             self.dz = DeepZoomGenerator(self.io, tile_size=1024, overlap=0, limit_bounds=True) 
@@ -60,32 +79,67 @@ class Opener:
     def close(self):
         self.io.close()
 
-    def is_rgba(self):
-        return self.rgba
+    def is_rgba(self, rgba_type=None):
+        if rgba_type is None:
+            return self.rgba
+        else:
+            return self.rgba and rgba_type == self.rgba_type
 
     def get_level_tiles(self, level, tile_size):
-        if self.reader == 'pytiff':
-            num_channels = self.get_shape()[0]
-            page_base = level * num_channels
-            self.io.set_page(page_base)
-            ny = int(np.ceil(self.io.shape[0] / tile_size))
-            nx = int(np.ceil(self.io.shape[1] / tile_size))
+        if self.reader == 'tifffile':
+
+            if self.ome_version == 5:
+
+                num_channels = self.get_shape()[0]
+                ifd = self.io.pages[level * num_channels]
+
+            if self.ome_version == 6:
+
+                ifd = self.io.pages[0]
+
+                if level != 0:
+                    ifd = ifd.pages[level - 1]
+
+            ny = int(np.ceil(ifd.shape[0] / tile_size))
+            nx = int(np.ceil(ifd.shape[1] / tile_size))
             return (nx, ny)
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level
             return self.dz.level_tiles[l]
 
     def get_shape(self):
-        if self.reader == 'pytiff':
+        if self.reader == 'tifffile':
 
-            num_channels = 0
-            for page in self.io.pages:
-                if self.io.shape == page.shape:
+            if self.ome_version == 5:
+                
+                num_channels = 0
+                num_pages = 0
+                base_shape = None
+                for page in self.io.pages:
+                    if base_shape is None:
+                        base_shape = page.shape
+                    if base_shape == page.shape:
+                        num_channels += 1
+                    num_pages += 1
+
+                num_levels = num_pages // num_channels
+
+                return (num_channels, num_levels, base_shape[1], base_shape[0])
+
+            if self.ome_version == 6:
+
+                num_levels = 0
+                num_channels = 0
+                base_shape = None
+                for page in self.io.pages:
+                    if base_shape is None:
+                        base_shape = page.shape
                     num_channels += 1
 
-            num_levels = self.io.number_of_pages // num_channels
+                for subpage in self.io.pages[0].pages:
+                    num_levels += 1
 
-            return (num_channels, num_levels, self.io.shape[1], self.io.shape[0])
+                return (num_channels, num_levels, base_shape[1], base_shape[0])
 
         elif self.reader == 'openslide':
 
@@ -99,33 +153,90 @@ class Opener:
 
             return (3, level_count, width, height)
 
-    def get_pytiff_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
+    def read_tiles(self, ifd, tx, ty, tilesize):
+        ix = tx * tilesize
+        iy = ty * tilesize
+
+        try:
+            tile = ifd.asarray()[iy:iy+tilesize, ix:ix+tilesize]
+            tile = np.squeeze(tile)
+            return tile
+        except Exception as e:
+            G['logger'].error(e)
+            return None
+
+    def read_tile(self, ifd, tx, ty):
+
+        col_n = math.ceil(ifd.shape[0] / ifd.tilelength)
+        row_n = math.ceil(ifd.shape[1] / ifd.tilewidth)
+        row_i = ty * row_n + tx
+
+        offset = ifd._offsetscounts[0][row_i]
+        count = ifd._offsetscounts[1][row_i]
+
+        data, segmentindex = next(self.io.filehandle.read_segments([offset], [count]))
+        tile, index, shape = ifd.decode(data, segmentindex)
+
+        if tx + 1 >= row_n or ty + 1 >= col_n:
+            iy = ifd.tilelength * ty
+            ix = ifd.tilewidth * tx
+            height = max(1, ifd.shape[0] - iy)
+            width = max(1, ifd.shape[1] - ix)
+            tile = np.squeeze(tile)
+            tile = tile[:height, :width]
+            return tile
+        else:
+            tile = np.squeeze(tile)
+            return tile
+
+    def get_tifffile_tile(self, num_channels, level, tx, ty, channel_number, tilesize=None):
+
+        if self.reader == 'tifffile':
+
+            if self.ome_version == 5:
+
+                page_base = level * num_channels
+                page = page_base + channel_number
+                ifd = self.io.pages[page]
+                self.tilesize = ifd.tilewidth
+
+                if (tilesize is not None) and (self.tilesize != tilesize):
+                    tile = self.read_tiles(ifd, tx, ty, tilesize)
+                else:
+                    tile = self.read_tile(ifd, tx, ty)
+
+            if self.ome_version == 6:
+
+                ifd = self.io.pages[channel_number]
+                self.tilesize = ifd.tilewidth
+
+                if level != 0:
+                    ifd = ifd.pages[level - 1]
+
+                if (tilesize is not None) and (self.tilesize != tilesize):
+                    tile = self.read_tiles(ifd, tx, ty, tilesize)
+                else:
+                    tile = self.read_tile(ifd, tx, ty)
+
+            if tile is None:
+                return None
+
+            return tile
+
+    def get_tile(self, num_channels, level, tx, ty, channel_number):
         
-        if self.reader == 'pytiff':
-
-            page_base = level * num_channels
-            page = page_base + channel_number
-
-            iy = ty * tile_size
-            ix = tx * tile_size
-
-            self.io.set_page(page)
-            return self.io[iy:iy+tile_size, ix:ix+tile_size]
-
-    def get_tile(self, tile_size, num_channels, level, tx, ty, channel_number):
-
-        if self.reader == 'pytiff':
-
-            if self.is_rgba():
-                tile_0 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 0)
-                tile_1 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 1)
-                tile_2 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 2)
+        if self.reader == 'tifffile':
+ 
+            if self.is_rgba('3 channel'):
+                tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0)
+                tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1)
+                tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2)
                 tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
                 tile[:, :, 0] = tile_0
                 tile[:, :, 1] = tile_1
                 tile[:, :, 2] = tile_2
             else:
-                tile = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, channel_number)
+                tile = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
 
             return Image.fromarray(tile)
 
@@ -135,12 +246,12 @@ class Opener:
             return img
 
     def save_tile(self, output_file, settings, tile_size, level, tx, ty):
-        if self.reader == 'pytiff' and self.is_rgba():
+        if self.reader == 'tifffile' and self.is_rgba('3 channel'):
 
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 0)
-            tile_1 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 1)
-            tile_2 = self.get_pytiff_tile(tile_size, num_channels, level, tx, ty, 2)
+            tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+            tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1, tile_size)
+            tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2, tile_size)
             tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
             tile[:,:,0] = tile_0
             tile[:,:,1] = tile_1
@@ -149,17 +260,22 @@ class Opener:
             img = Image.fromarray(tile, 'RGB')
             img.save(output_file, quality=85)
 
-        elif self.reader == 'pytiff':
-            iy = ty * tile_size
-            ix = tx * tile_size
+        elif self.reader == 'tifffile' and self.is_rgba('1 channel'):
+
+            num_channels = self.get_shape()[0]
+            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+
+            img = Image.fromarray(tile, 'RGB')
+            img.save(output_file, quality=85)
+
+        elif self.reader == 'tifffile':
             for i, (marker, color, start, end) in enumerate(zip(
                 settings['Channel Number'], settings['Color'],
                 settings['Low'], settings['High']
             )):
                 num_channels = self.get_shape()[0]
-                page_base = level * num_channels
-                self.io.set_page(page_base + int(marker))
-                tile = self.io[iy:iy+tile_size, ix:ix+tile_size]
+                tile = self.get_tifffile_tile(num_channels, level, tx, ty, int(marker), tile_size)
+
                 if i == 0:
                     target = np.zeros(tile.shape + (3,), np.float32)
                 composite_channel(
@@ -189,6 +305,8 @@ def reset_globals():
         'out_dir': None,
         'out_dat': None,
         'out_yaml': None,
+        'out_log': None,
+        'logger': logging.getLogger('app'),
         'sample_info': {
             'rotation': 0,
             'name': '',
@@ -198,6 +316,8 @@ def reset_globals():
         'waypoints': [],
         'channels': [],
         'loaded': False,
+        'maxLevel': None,
+        'tilesize': 1024,
         'height': 1024,
         'width': 1024,
         'save_progress': 0,
@@ -265,7 +385,7 @@ def u16_image(channel, level, x, y):
     if G['opener'] is None:
         open_input_file()
 
-    img_io = render_tile(G['opener'], 1024, len(G['channels']),
+    img_io = render_tile(G['opener'], len(G['channels']),
                         int(level), int(x), int(y), int(channel))
     return send_file(img_io, mimetype='image/png')
 
@@ -385,11 +505,12 @@ def api_save():
         G['waypoints'] = data['waypoints']
         G['groups'] = data['groups']
 
-        out_dir, out_yaml, out_dat = get_story_folders(G['out_name'])
+        out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
 
         G['out_dat'] = out_dat
         G['out_yaml'] = out_yaml
         G['out_dir'] = out_dir
+        G['out_log'] = out_log
 
         pickle.dump( data, open( G['out_dat'], 'wb' ) )
 
@@ -464,7 +585,7 @@ def api_render():
 
         create_story_base(G['out_name'])
 
-        out_dir, out_yaml, out_dat = get_story_folders(G['out_name'])
+        out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
         G['out_yaml'] = out_yaml
 
         with open(G['out_yaml'], 'w') as wf:
@@ -472,10 +593,26 @@ def api_render():
             wf.write(yaml_text)
 
         render_color_tiles(G['in_file'], G['opener'], G['out_dir'], 1024,
-                           len(G['channels']), config_rows, progress_callback=render_progress_callback)
+                           len(G['channels']), config_rows, G['logger'], progress_callback=render_progress_callback)
 
         return 'OK'
 
+@app.route('/api/import/groups', methods=['POST'])
+@cross_origin()
+def api_import_groups():
+    if request.method == 'POST':
+        data = request.json
+        input_file = pathlib.Path(data['filepath'])
+        if not os.path.exists(input_file):
+            return api_error(404, 'Dat file not found: ' + str(input_file))
+
+        if (input_file.suffix == '.dat'):
+            saved = pickle.load( open( input_file, "rb" ) )
+            G['groups'] = saved['groups']
+
+        return jsonify({
+            'groups': G['groups']
+        })
 
 @app.route('/api/import', methods=['GET', 'POST'])
 @cross_origin()
@@ -488,6 +625,8 @@ def api_import():
             'sample_info': G['sample_info'],
             'groups': G['groups'],
             'channels': G['channels'],
+            'tilesize': G['tilesize'],
+            'maxLevel': G['maxLevel'],
             'height': G['height'],
             'width': G['width'],
             'rgba': G['opener'].is_rgba() if G['opener'] else False
@@ -523,7 +662,7 @@ def api_import():
         if out_name == '':
             out_name = 'out'
 
-        out_dir, out_yaml, out_dat = get_story_folders(out_name)
+        out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name)
 
         try:
             print("Opening file: ", str(input_file))
@@ -533,6 +672,7 @@ def api_import():
 
 
             (num_channels, num_levels, width, height) = G['opener'].get_shape()
+            tilesize = G['opener'].tilesize
 
             YAML['Images'] = [{
                 'Name': 'i0',
@@ -542,6 +682,8 @@ def api_import():
                 'Height': height,
                 'MaxLevel': num_levels - 1
             }]
+            G['MaxLevel'] = num_levels - 1
+            G['tilesize'] = tilesize
             G['height'] = height
             G['width'] = width
 
@@ -570,6 +712,16 @@ def api_import():
         if labels == []:
             return api_error(500, "Error in opening marker csv file")
 
+        fh = logging.FileHandler(str(out_log))
+        fh.setLevel(logging.DEBUG)
+        ch = logging.StreamHandler()
+        ch.setLevel(logging.ERROR)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        ch.setFormatter(formatter)
+        fh.setFormatter(formatter)
+        G['logger'].addHandler(ch)
+        G['logger'].addHandler(fh)
+
         if os.path.exists(input_file):
             G['out_yaml'] = str(out_yaml)
             G['out_dat'] = str(out_dat)
@@ -579,6 +731,8 @@ def api_import():
             G['csv_file'] = str(csv_file)
             G['channels'] = labels
             G['loaded'] = True
+        else:
+            G['logger'].error(f'Input file {input_file} does not exist')
 
         return 'OK'
 
