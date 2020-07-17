@@ -36,12 +36,12 @@ figure: {title}
 
 def get_story_folders(title, create=False):
     """
-    Gets paths to folders where image tiles, yaml and dat-file must be saved.
+    Gets paths to folders where image tiles, yaml, dat-file and log file must be saved.
     Args:
         title: Story title
         create: Whether folders should be created
 
-    Returns: Tuple of images dir, yaml dir, dat dir
+    Returns: Tuple of images dir, yaml dir, dat dir, log dir
     """
     out_name = title.replace(' ', '_')
     folder = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -53,9 +53,10 @@ def get_story_folders(title, create=False):
     out_yaml = os.path.join(yaml_folder, out_name + '.yaml')
 
     out_dat = os.path.join(folder, out_name + '.dat')
+    out_log = os.path.join(folder, out_name + '.log')
 
     if create:
         os.makedirs(images_folder, exist_ok=True)
         os.makedirs(yaml_folder, exist_ok=True)
 
-    return out_dir, out_yaml, out_dat
+    return out_dir, out_yaml, out_dat, out_log
