@@ -8,7 +8,6 @@ except ImportError:
 from skimage.exposure import adjust_gamma
 import json
 import numpy as np
-import pytiff
 from PIL import Image
 from matplotlib import colors
 import csv
@@ -40,11 +39,11 @@ def _calculate_total_tiles(opener, tile_size, num_levels, num_channels):
 
     return tiles
 
-def render_color_tiles(input_file, opener, output_dir, tile_size, num_channels, config_rows, logger, progress_callback=None):
+def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows, logger, progress_callback=None):
 
     EXT = 'jpg'
 
-    print('Processing:', str(input_file))
+    print('Processing:', str(opener.path))
 
     output_path = pathlib.Path(output_dir)
 

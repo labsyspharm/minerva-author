@@ -5,17 +5,15 @@ try:
     import pathlib
 except ImportError:
     import pathlib2 as pathlib
-from skimage.exposure import adjust_gamma
 from PIL import Image
 import numpy as np
-import pytiff
+import tifffile
 import io
 from threading import Lock
 
 tiff_lock = Lock()
 
 def render_tile(opener, num_channels, level, tx, ty, channel_number):
-
     with tiff_lock:
         img = opener.get_tile(num_channels, level, tx, ty, channel_number)
 
@@ -30,41 +28,42 @@ def render_tiles(input_file: str, output_dir, tile_size, num_channels):
     print('Processing:', str(input_file))
 
     output_path = pathlib.Path(output_dir)
-    tiff = pytiff.Tiff(str(input_file), encoding='utf-8')
+    tiff = tifffile.TiffFile(str(input_file))
+    number_of_pages = len(tiff.pages)
 
-    assert tiff.number_of_pages % num_channels == 0, "Pyramid/channel mismatch"
+    assert number_of_pages % num_channels == 0, "Pyramid/channel mismatch"
 
-    num_levels = tiff.number_of_pages // num_channels
+    num_levels = number_of_pages // num_channels
 
     for level in range(num_levels):
 
         page_base = level * num_channels
-        tiff.set_page(page_base)
-        ny = int(np.ceil(tiff.shape[0] / tile_size))
-        nx = int(np.ceil(tiff.shape[1] / tile_size))
+        page = tiff.pages[page_base]
+        ny = int(np.ceil(page.shape[0] / tile_size))
+        nx = int(np.ceil(page.shape[1] / tile_size))
         print('    level {} ({} x {})'.format(level, ny, nx))
 
-        for ty, tx in itertools.product(range(0, ny), range(0, nx)):
+        for channel_number in range(num_channels):
+            print(f"        channel {channel_number}")
+            page_number = page_base + channel_number
+            page = tifffile.imread(str(input_file), key=page_number)
 
-            iy = ty * tile_size
-            ix = tx * tile_size
-            filename = '{}_{}_{}.png'.format(level, tx, ty)
+            group_dir = str(channel_number)
+            if not (output_path / group_dir).exists():
+                (output_path / group_dir).mkdir(parents=True)
 
-            for channel_number in range(num_channels):
+            for ty, tx in itertools.product(range(0, ny), range(0, nx)):
+                iy = ty * tile_size
+                ix = tx * tile_size
+                filename = '{}_{}_{}.png'.format(level, tx, ty)
 
-                group_dir = str(channel_number)
-                if not (output_path / group_dir).exists():
-                    (output_path / group_dir).mkdir(parents=True)
-
-                tiff.set_page(page_base + channel_number)
-                tile = tiff[iy:iy+tile_size, ix:ix+tile_size]
-                # tile = adjust_gamma(tile, 1/2.2)
+                tile = page[iy:iy+tile_size, ix:ix+tile_size]
 
                 array_buffer = tile.tobytes()
                 img = Image.new("I", tile.T.shape)
                 img.frombytes(array_buffer, 'raw', "I;16")
 
-                img.save(str(output_path / group_dir / filename))
+                img.save(str(output_path / group_dir / filename), compress_level=1)
 
 
 if __name__ == "__main__":

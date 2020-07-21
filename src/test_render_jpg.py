@@ -2,10 +2,12 @@ import os
 from render_jpg import render_color_tiles
 from app import Opener
 from skimage import io
+import logging
 
 def test_ome_tif_rendered_output():
-    opener = Opener('../testimages/64x64.ome.tif')
-
+    logger = logging.getLogger('app')
+    filepath = '../testimages/2048x2048_ome6_tiled.ome.tif'
+    opener = Opener(filepath)
     groups = [
         {
             'Group': 'group_label',
@@ -32,19 +34,45 @@ def test_ome_tif_rendered_output():
             'Color': [0, 0, 1.0, 1.0],
         }
     ]
-    render_color_tiles(opener, output_dir="tmp", tile_size=1024, num_channels=1, config_rows=groups, progress_callback=None)
+    render_color_tiles(opener, output_dir="tmp", tile_size=1024, num_channels=3, config_rows=groups, logger=logger, progress_callback=None)
+
+    filename = os.path.join("tmp", "group_label_0__DAPI--1__panCK--2__S100", "1_0_0.jpg")
+    img = io.imread(filename)
+    assert img.shape == (1024, 1024, 3)
+    _assert_approx_color(img[200][200], [0, 255, 0])
+    _assert_approx_color(img[200][500], [255, 255, 0])
+    _assert_approx_color(img[200][800], [255, 0, 0])
+    _assert_approx_color(img[550][350], [0, 255, 255])
+    _assert_approx_color(img[450][500], [255, 255, 255])
+    _assert_approx_color(img[550][700], [255, 0, 255])
+    _assert_approx_color(img[800][500], [0, 0, 255])
+
     filename = os.path.join("tmp", "group_label_0__DAPI--1__panCK--2__S100", "0_0_0.jpg")
     img = io.imread(filename)
-    assert img.shape == (64, 64, 3)
-    # Jpeg compression will result in approximate colors, so we can't make exact assertions
-    _assert_approx_color(img[0][0], [255, 0, 0])
-    _assert_approx_color(img[63][0], [0, 0, 255])
-    _assert_approx_color(img[0][63], [0, 255, 0])
-    _assert_approx_color(img[63][63], [0, 0, 0])
-    _assert_approx_color(img[32][0], [255, 0, 255])
-    _assert_approx_color(img[0][32], [255, 255, 0])
+    assert img.shape == (1024, 1024, 3)
+    _assert_approx_color(img[700][700], [0, 255, 0])
 
-def _assert_approx_color(actual, expected, margin=1):
+    filename = os.path.join("tmp", "group_label_0__DAPI--1__panCK--2__S100", "0_0_1.jpg")
+    img = io.imread(filename)
+    assert img.shape == (1024, 1024, 3)
+    _assert_approx_color(img[300][700], [0, 0, 255])
+
+    filename = os.path.join("tmp", "group_label_0__DAPI--1__panCK--2__S100", "0_1_0.jpg")
+    img = io.imread(filename)
+    assert img.shape == (1024, 1024, 3)
+    _assert_approx_color(img[800][400], [255, 0, 0])
+
+    filename = os.path.join("tmp", "group_label_0__DAPI--1__panCK--2__S100", "0_1_1.jpg")
+    img = io.imread(filename)
+    assert img.shape == (1024, 1024, 3)
+    _assert_approx_color(img[300][200], [0, 0, 255])
+
+
+def _assert_approx_color(expected, actual, margin=1):
+    """
+    Compares two colors, a margin of error is allowed.
+    Jpeg compression will result in approximate colors, so we can't make exact assertions
+    """
     assert expected[0] - margin <= actual[0] <= expected[0] + margin
     assert expected[1] - margin <= actual[1] <= expected[1] + margin
     assert expected[2] - margin <= actual[2] <= expected[2] + margin
