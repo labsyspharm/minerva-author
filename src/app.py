@@ -49,7 +49,8 @@ class Opener:
         if ext == '.ome.tif' or ext == '.ome.tiff':
             self.io = TiffFile(self.path)
             self.reader = 'tifffile'
-            self.ome_version = 5
+            self.ome_version = self._get_ome_version()
+            print("OME ", self.ome_version)
             num_channels = self.get_shape()[0]
             tile_0 = self.get_tifffile_tile(num_channels, 0,0,0,0)
             if (num_channels == 3 and tile_0.dtype == 'uint8'):
@@ -62,19 +63,31 @@ class Opener:
                 self.rgba = False
                 self.rgba_type = None
 
-            sub_ifds = None
-            try:
-                sub_ifds = self.io.pages[0].tags[330].value
-            except Exception as e:
-                pass
-
-            if ("Faas" not in self.io.pages[0].tags[305].value or sub_ifds is not None):
-                self.ome_version = 6
         else:
             self.io = OpenSlide(self.path)
             self.dz = DeepZoomGenerator(self.io, tile_size=1024, overlap=0, limit_bounds=True) 
             self.reader = 'openslide'
             self.rgba = True
+            self.rgba_type = None
+
+        print("RGB ", self.rgba)
+        print("RGB type ", self.rgba_type)
+
+    def _get_ome_version(self):
+        try:
+            software = self.io.pages[0].tags[305].value
+            sub_ifds = self.io.pages[0].tags[330].value
+            if "Faas" in software or sub_ifds is None:
+                return 5
+
+            m = re.search('OME\\sBio-Formats\\s(\\d+)\\.\\d+\\.\\d+', software)
+            if m is None:
+                return 5
+            return int(m.group(1))
+        except Exception as e:
+            print(e)
+            return 5
+
 
     def close(self):
         self.io.close()
@@ -111,7 +124,6 @@ class Opener:
         if self.reader == 'tifffile':
 
             if self.ome_version == 5:
-                
                 num_channels = 0
                 num_pages = 0
                 base_shape = None
@@ -127,8 +139,7 @@ class Opener:
                 return (num_channels, num_levels, base_shape[1], base_shape[0])
 
             if self.ome_version == 6:
-
-                num_levels = 0
+                num_levels = 1
                 num_channels = 0
                 base_shape = None
                 for page in self.io.pages:
@@ -235,10 +246,12 @@ class Opener:
                 tile[:, :, 0] = tile_0
                 tile[:, :, 1] = tile_1
                 tile[:, :, 2] = tile_2
+                format = 'I;8'
             else:
                 tile = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
+                format = 'I;16'
 
-            return Image.fromarray(tile)
+            return Image.fromarray(tile, format)
 
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level
@@ -592,7 +605,7 @@ def api_render():
             yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
             wf.write(yaml_text)
 
-        render_color_tiles(G['in_file'], G['opener'], G['out_dir'], 1024,
+        render_color_tiles(G['opener'], G['out_dir'], 1024,
                            len(G['channels']), config_rows, G['logger'], progress_callback=render_progress_callback)
 
         return 'OK'
