@@ -1,4 +1,4 @@
-from imagecodecs import _zlib
+from imagecodecs import _zlib # Needed for pyinstaller
 import pathlib
 import re
 import string
