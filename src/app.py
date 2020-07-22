@@ -1,3 +1,4 @@
+from imagecodecs import _zlib
 import pathlib
 import re
 import string
