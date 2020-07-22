@@ -1,4 +1,7 @@
 from imagecodecs import _zlib # Needed for pyinstaller
+from imagecodecs import _imcd # Needed for pyinstaller
+from imagecodecs import _jpeg8 # Needed for pyinstaller
+from imagecodecs import _jpeg2k # Needed for pyinstaller
 import pathlib
 import re
 import string
