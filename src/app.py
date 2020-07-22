@@ -68,6 +68,7 @@ class Opener:
             self.dz = DeepZoomGenerator(self.io, tile_size=1024, overlap=0, limit_bounds=True) 
             self.reader = 'openslide'
             self.rgba = True
+            self.rgba_type = None
 
         print("RGB ", self.rgba)
         print("RGB type ", self.rgba_type)

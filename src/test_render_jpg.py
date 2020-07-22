@@ -4,6 +4,8 @@ from app import Opener
 from skimage import io
 import logging
 
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 def test_ome_tif_rendered_output():
     logger = logging.getLogger('app')
     filepath = '../testimages/2048x2048_ome6_tiled.ome.tif'
