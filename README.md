@@ -1,24 +1,3 @@
-### Preparing to install
-
-#### On OSX
-
-Run the following command to install libtiff.
-
-```
-brew install libtiff
-```
-
-#### On Windows
-
-Clone the pytiff source.
-
-```
-git clone https://github.com/FZJ-INM1-BDA/pytiff.git
-cd pytiff
-```
-
-Then [install pytiff from source](https://github.com/FZJ-INM1-BDA/pytiff#installation-on-windows).
-
 ### Installing
 ```
 git clone git@github.com:labsyspharm/minerva-author.git
@@ -36,17 +15,17 @@ pip install -r requirements.txt
 python src/app.py
 ```
 
-- Then, open a browser to `localhost:2020`
+- Browser window should open automatically, if not then open a browser to `localhost:2020`
 
-- Then, copy the filepath to an OME Tiff
+- Browse or copy the file path to an OME-TIFF or SVS
 
-- Wait for the generation of a full pyramid
+- Click import and wait for the generation of a full pyramid
 
-At minimum, you'll need to type one 'Group' name into the top dropdown to create a group. For each group you create, you can select channels from the second dropdown and set up their rendering settings with the various sliders. After you hit 'save', look in the directory of the original OME Tiff for an `out.yaml` configuration file and an `out` directory of rendered images for use with Minerva Story.
+At minimum, you'll need to type one 'Group' name into the top dropdown to create a group. For each group you create, you can select channels from the second dropdown and set up their rendering settings with the various sliders. After you hit 'save', look in the directory of the executable (or app.py) for a new folder which contains the generated Minerva Story, with configuration files and an image pyramid.
 
 ### Automated test suite
 
-The project contains automated tests using the pytest framework. To run the test suite, simply execute in src folder:
+The project contains automated tests using the pytest framework. To run the test suite, simply execute in the project folder:
 ```
 pytest
 ```
@@ -55,15 +34,15 @@ pytest
 
 #### MacOS
 
+To package the application as a standalone executable, run script:
 ```
-pyinstaller -F --paths $CONDA_PREFIX --add-data 'static:static' src/app.py
+package_mac.sh
 ```
 
-#### Windows powershell
+#### Windows (powershell)
 
-Fetch OpenSlide binaries from https://openslide.org/download/#windows-binaries and save the .dll files to /src
+Fetch OpenSlide binaries from https://openslide.org/download/#windows-binaries and save the .dll files to /src. Then run script:
 ```
-pyinstaller -F --paths $env:CONDA_PREFIX --hidden-import="pkg_resources.py2_warn" --add-data 'static;static' src/app.py
-
+package_win.bat
 ```
 
