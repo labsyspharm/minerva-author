@@ -805,12 +805,21 @@ def file_browser():
                 "path": entry.path,
                 "isDir": is_directory
             }
+
+            is_broken = False
+            is_hidden = entry.name[0] == '.'
+
             if not is_directory:
-                stat_result = entry.stat()
-                new_entry["size"] = stat_result.st_size
-                new_entry["ctime"] = stat_result.st_ctime
-                new_entry["mtime"] = stat_result.st_mtime
-            response["entries"].append(new_entry)
+                try:
+                    stat_result = entry.stat()
+                    new_entry["size"] = stat_result.st_size
+                    new_entry["ctime"] = stat_result.st_ctime
+                    new_entry["mtime"] = stat_result.st_mtime
+                except FileNotFoundError as e:
+                    is_broken = True
+
+            if not is_hidden and not is_broken:
+                response["entries"].append(new_entry)
         except PermissionError as e:
             pass
 
