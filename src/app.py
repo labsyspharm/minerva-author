@@ -699,7 +699,7 @@ def api_import():
                 'Height': height,
                 'MaxLevel': num_levels - 1
             }]
-            G['MaxLevel'] = num_levels - 1
+            G['maxLevel'] = num_levels - 1
             G['tilesize'] = tilesize
             G['height'] = height
             G['width'] = width
