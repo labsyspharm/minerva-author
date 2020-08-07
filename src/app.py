@@ -366,10 +366,10 @@ app = Flask(__name__,
 cors = CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
-def open_input_file(path=None):
+def open_input_file(path):
     tiff_lock.acquire()
-    if G['opener'] is None:
-        G['opener'] = Opener(path if path else G['in_file'])
+    if G['opener'] is None and path is not None:
+        G['opener'] = Opener(path)
     tiff_lock.release()
 
 @app.route('/')
@@ -400,7 +400,7 @@ def u16_image(channel, level, x, y):
 
     # Open the input file on the first request only
     if G['opener'] is None:
-        open_input_file()
+        open_input_file(G['in_file'])
 
     img_io = render_tile(G['opener'], len(G['channels']),
                         int(level), int(x), int(y), int(channel))
