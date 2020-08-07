@@ -404,7 +404,14 @@ def u16_image(channel, level, x, y):
 
     img_io = render_tile(G['opener'], len(G['channels']),
                         int(level), int(x), int(y), int(channel))
+    if img_io is None:
+
+        response = make_response('Not found', 404)
+        response.mimetype = "text/plain"
+        return response
+ 
     return send_file(img_io, mimetype='image/png')
+
 
 @app.route('/api/out/<path:path>')
 @cross_origin()
