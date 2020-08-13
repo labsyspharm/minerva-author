@@ -17,8 +17,8 @@ import webbrowser
 import numpy as np
 from PIL import Image
 from matplotlib import colors
-from openslide import OpenSlide
-from openslide.deepzoom import DeepZoomGenerator
+# from openslide import OpenSlide
+# from openslide.deepzoom import DeepZoomGenerator
 from threading import Timer
 from flask import Flask
 from flask import jsonify
@@ -68,11 +68,14 @@ class Opener:
                 self.rgba_type = None
 
         else:
+            pass
+            '''
             self.io = OpenSlide(self.path)
             self.dz = DeepZoomGenerator(self.io, tile_size=1024, overlap=0, limit_bounds=True) 
             self.reader = 'openslide'
             self.rgba = True
             self.rgba_type = None
+            '''
 
         print("RGB ", self.rgba)
         print("RGB type ", self.rgba_type)
@@ -638,9 +641,9 @@ def api_import_groups():
             'groups': G['groups']
         })
 
-@app.route('/api/import', methods=['GET', 'POST'])
-@cross_origin()
-def api_import():
+#@app.route('/api/import', methods=['GET', 'POST'])
+#@cross_origin()
+def api_import(request):
     if request.method == 'GET':
 
         return jsonify({
@@ -853,8 +856,20 @@ def close_tiff():
             print(e)
 
 def open_browser():
-    webbrowser.open_new('http://127.0.0.1:' + str(PORT) + '/')
+    pass
+    #webbrowser.open_new('http://127.0.0.1:' + str(PORT) + '/')
 
+
+class FakeImportRequest():
+
+    def __init__(self, filename):
+
+        self.method = 'POST'
+        self.form = {
+            'filepath': filename,
+            'csvpath': '',
+            'dataset': ''
+        }
 
 if __name__ == '__main__':
     Timer(1, open_browser).start()
@@ -864,3 +879,5 @@ if __name__ == '__main__':
         app.run(debug=False, port=PORT)
     else:
         serve(app, listen="127.0.0.1:" + str(PORT), threads=10)
+
+    api_import(FakeImportRequest('/n/scratch3/users/j/jth30/C0138.ome.tif'))
