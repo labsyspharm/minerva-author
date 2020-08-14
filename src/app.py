@@ -215,10 +215,12 @@ class Opener:
                 ifd = self.io.pages[page]
                 self.tilesize = ifd.tilewidth
                 if self.tilesize == 0:
-                    tilesize = 1024
+                    self.tilesize = 1024
+                    tile = np.zeros((1024, 1024), dtype=ifd.dtype)
 
-                if (tilesize is not None) and (self.tilesize != tilesize):
+                elif (tilesize is not None) and (self.tilesize != tilesize):
                     tile = self.read_tiles(ifd, tx, ty, tilesize)
+
                 else:
                     tile = self.read_tile(ifd, tx, ty)
 
