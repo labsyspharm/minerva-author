@@ -214,6 +214,8 @@ class Opener:
                 page = page_base + channel_number
                 ifd = self.io.pages[page]
                 self.tilesize = ifd.tilewidth
+                if self.tilesize == 0:
+                    tilesize = 1024
 
                 if (tilesize is not None) and (self.tilesize != tilesize):
                     tile = self.read_tiles(ifd, tx, ty, tilesize)
