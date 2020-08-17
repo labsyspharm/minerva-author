@@ -671,6 +671,7 @@ def api_import():
         })
 
     if request.method == 'POST':
+        chanLabel = {}
         data = request.form
         input_file = pathlib.Path(data['filepath'])
         if not os.path.exists(input_file):
@@ -693,6 +694,9 @@ def api_import():
 
             G['waypoints'] = saved['waypoints']
             G['groups'] = saved['groups']
+            for group in saved['groups']:
+                for chan in group['channels']:
+                    chanLabel[str(chan['id'])] = chan['label']
         else:
             csv_file = pathlib.Path(data['csvpath'])
 
@@ -730,24 +734,22 @@ def api_import():
             return api_error(500, 'Invalid tiff file')
 
         def yield_labels(num_channels): 
-            num_labels = 0
-            try:
+            label_num = 0
+            if str(csv_file) != '.':
                 with open(csv_file) as cf:
-                    reader = csv.DictReader(cf)
-                    for row in reader:
-                        if num_labels < num_channels:
-                            default = row.get('marker_name', str(num_labels))
-                            yield row.get('Marker Name', default)
-                            num_labels += 1
-            except Exception as e:
-                if (str(csv_file) != '.'):
-                    return []
-            while num_labels < num_channels:
-                yield str(num_labels)
-                num_labels += 1
+                    for row in csv.DictReader(cf):
+                        if label_num < num_channels:
+                            default = row.get('marker_name', str(label_num))
+                            default = row.get('Marker Name', default)
+                            yield chanLabel.get(str(label_num), default)
+                            label_num += 1
+            while label_num < num_channels:
+                yield chanLabel.get(str(label_num), str(label_num))
+                label_num += 1
 
-        labels = list(yield_labels(num_channels))
-        if labels == []:
+        try:
+            labels = list(yield_labels(num_channels))
+        except Exception as e:
             return api_error(500, "Error in opening marker csv file")
 
         fh = logging.FileHandler(str(out_log))
