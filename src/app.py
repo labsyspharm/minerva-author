@@ -41,9 +41,11 @@ if os.name == 'nt':
 
 PORT = 2020
 
+
 class Opener:
 
     def __init__(self, path):
+        self.warning = ''
         self.path = path
         self.tilesize = 1024
         base, ext1 = os.path.splitext(path)
@@ -216,7 +218,9 @@ class Opener:
                 self.tilesize = ifd.tilewidth
 
                 if (tilesize is None) and self.tilesize == 0:
+                    # Warning... return untiled planes as all-black
                     self.tilesize = 1024
+                    self.warning = f'Level {level} is not tiled. It will show as all-black.'
                     tile = np.zeros((1024, 1024), dtype=ifd.dtype)
 
                 elif (tilesize is not None) and self.tilesize == 0:
@@ -662,6 +666,7 @@ def api_import():
             'maxLevel': G['maxLevel'],
             'height': G['height'],
             'width': G['width'],
+            'warning': G['opener'].warning if G['opener'] else '',
             'rgba': G['opener'].is_rgba() if G['opener'] else False
         })
 
