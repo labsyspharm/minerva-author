@@ -41,9 +41,11 @@ if os.name == 'nt':
 
 PORT = 2020
 
+
 class Opener:
 
     def __init__(self, path):
+        self.warning = ''
         self.path = path
         self.tilesize = 1024
         base, ext1 = os.path.splitext(path)
@@ -215,8 +217,19 @@ class Opener:
                 ifd = self.io.pages[page]
                 self.tilesize = ifd.tilewidth
 
-                if (tilesize is not None) and (self.tilesize != tilesize):
+                if (tilesize is None) and self.tilesize == 0:
+                    # Warning... return untiled planes as all-black
+                    self.tilesize = 1024
+                    self.warning = f'Level {level} is not tiled. It will show as all-black.'
+                    tile = np.zeros((1024, 1024), dtype=ifd.dtype)
+
+                elif (tilesize is not None) and self.tilesize == 0:
+                    self.tilesize = tilesize
                     tile = self.read_tiles(ifd, tx, ty, tilesize)
+
+                elif (tilesize is not None) and (self.tilesize != tilesize):
+                    tile = self.read_tiles(ifd, tx, ty, tilesize)
+
                 else:
                     tile = self.read_tile(ifd, tx, ty)
 
@@ -366,10 +379,10 @@ app = Flask(__name__,
 cors = CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
-def open_input_file(path=None):
+def open_input_file(path):
     tiff_lock.acquire()
-    if G['opener'] is None:
-        G['opener'] = Opener(path if path else G['in_file'])
+    if G['opener'] is None and path is not None:
+        G['opener'] = Opener(path)
     tiff_lock.release()
 
 @app.route('/')
@@ -400,11 +413,18 @@ def u16_image(channel, level, x, y):
 
     # Open the input file on the first request only
     if G['opener'] is None:
-        open_input_file()
+        open_input_file(G['in_file'])
 
     img_io = render_tile(G['opener'], len(G['channels']),
                         int(level), int(x), int(y), int(channel))
+    if img_io is None:
+
+        response = make_response('Not found', 404)
+        response.mimetype = "text/plain"
+        return response
+ 
     return send_file(img_io, mimetype='image/png')
+
 
 @app.route('/api/out/<path:path>')
 @cross_origin()
@@ -646,10 +666,12 @@ def api_import():
             'maxLevel': G['maxLevel'],
             'height': G['height'],
             'width': G['width'],
+            'warning': G['opener'].warning if G['opener'] else '',
             'rgba': G['opener'].is_rgba() if G['opener'] else False
         })
 
     if request.method == 'POST':
+        chanLabel = {}
         data = request.form
         input_file = pathlib.Path(data['filepath'])
         if not os.path.exists(input_file):
@@ -672,6 +694,9 @@ def api_import():
 
             G['waypoints'] = saved['waypoints']
             G['groups'] = saved['groups']
+            for group in saved['groups']:
+                for chan in group['channels']:
+                    chanLabel[str(chan['id'])] = chan['label']
         else:
             csv_file = pathlib.Path(data['csvpath'])
 
@@ -699,7 +724,7 @@ def api_import():
                 'Height': height,
                 'MaxLevel': num_levels - 1
             }]
-            G['MaxLevel'] = num_levels - 1
+            G['maxLevel'] = num_levels - 1
             G['tilesize'] = tilesize
             G['height'] = height
             G['width'] = width
@@ -709,24 +734,22 @@ def api_import():
             return api_error(500, 'Invalid tiff file')
 
         def yield_labels(num_channels): 
-            num_labels = 0
-            try:
+            label_num = 0
+            if str(csv_file) != '.':
                 with open(csv_file) as cf:
-                    reader = csv.DictReader(cf)
-                    for row in reader:
-                        if num_labels < num_channels:
-                            default = row.get('marker_name', str(num_labels))
-                            yield row.get('Marker Name', default)
-                            num_labels += 1
-            except Exception as e:
-                if (str(csv_file) != '.'):
-                    return []
-            while num_labels < num_channels:
-                yield str(num_labels)
-                num_labels += 1
+                    for row in csv.DictReader(cf):
+                        if label_num < num_channels:
+                            default = row.get('marker_name', str(label_num))
+                            default = row.get('Marker Name', default)
+                            yield chanLabel.get(str(label_num), default)
+                            label_num += 1
+            while label_num < num_channels:
+                yield chanLabel.get(str(label_num), str(label_num))
+                label_num += 1
 
-        labels = list(yield_labels(num_channels))
-        if labels == []:
+        try:
+            labels = list(yield_labels(num_channels))
+        except Exception as e:
             return api_error(500, "Error in opening marker csv file")
 
         fh = logging.FileHandler(str(out_log))
@@ -805,12 +828,21 @@ def file_browser():
                 "path": entry.path,
                 "isDir": is_directory
             }
+
+            is_broken = False
+            is_hidden = entry.name[0] == '.'
+
             if not is_directory:
-                stat_result = entry.stat()
-                new_entry["size"] = stat_result.st_size
-                new_entry["ctime"] = stat_result.st_ctime
-                new_entry["mtime"] = stat_result.st_mtime
-            response["entries"].append(new_entry)
+                try:
+                    stat_result = entry.stat()
+                    new_entry["size"] = stat_result.st_size
+                    new_entry["ctime"] = stat_result.st_ctime
+                    new_entry["mtime"] = stat_result.st_mtime
+                except FileNotFoundError as e:
+                    is_broken = True
+
+            if not is_hidden and not is_broken:
+                response["entries"].append(new_entry)
         except PermissionError as e:
             pass
 

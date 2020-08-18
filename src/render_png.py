@@ -15,11 +15,18 @@ tiff_lock = Lock()
 
 def render_tile(opener, num_channels, level, tx, ty, channel_number):
     with tiff_lock:
-        img = opener.get_tile(num_channels, level, tx, ty, channel_number)
 
-    img_io = io.BytesIO()
-    img.save(img_io, 'PNG', compress_level=1)
-    img_io.seek(0)
+        (num_channels, num_levels, width, height) = opener.get_shape()
+        tilesize = opener.tilesize
+    
+        img_io = None
+        if level < num_levels and channel_number < num_channels:
+            if tx <= width // tilesize and ty <= height // tilesize:
+                img = opener.get_tile(num_channels, level, tx, ty, channel_number)
+                img_io = io.BytesIO()
+                img.save(img_io, 'PNG', compress_level=1)
+                img_io.seek(0)
+
     return img_io
 
 
