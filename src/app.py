@@ -314,11 +314,12 @@ class Opener:
                 channels.append({
                     "image": tile,
                     "color": colors.to_rgb(color),
-                    "min": float(start),
-                    "max": float(end)
+                    "min": float(start/65535),
+                    "max": float(end/65535)
                 })
 
             target_u8 = render.composite_channels(channels, gamma=1.0)
+
             imagecodecs.imwrite(output_file, target_u8, codec='jpeg', level=85)
 
         elif self.reader == 'openslide':
