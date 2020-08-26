@@ -117,5 +117,5 @@ def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows,
 
                 progress += 1
                 if progress_callback is not None:
-                    progress_callback(progress, total_tiles)
+                    progress_callback(progress, len(render_groups)*total_tiles)
 
