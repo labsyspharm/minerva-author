@@ -10,11 +10,13 @@ import os
 import csv
 import yaml
 import math
+import time
 from tifffile import TiffFile
 from tifffile import create_output
 import pickle
 import webbrowser
 import numpy as np
+import imagecodecs
 from PIL import Image
 from matplotlib import colors
 from openslide import OpenSlide
@@ -26,12 +28,14 @@ from flask import request
 from flask import send_file 
 from flask import make_response
 from render_png import render_tile
-from render_jpg import composite_channel
 from render_jpg import render_color_tiles
 from storyexport import create_story_base, get_story_folders
 from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
+from functools import wraps, update_wrapper
+from datetime import datetime
+from minerva_lib import render
 import multiprocessing
 import logging
 import atexit
@@ -299,6 +303,7 @@ class Opener:
             img.save(output_file, quality=85)
 
         elif self.reader == 'tifffile':
+            channels = []
             for i, (marker, color, start, end) in enumerate(zip(
                 settings['Channel Number'], settings['Color'],
                 settings['Low'], settings['High']
@@ -306,15 +311,15 @@ class Opener:
                 num_channels = self.get_shape()[0]
                 tile = self.get_tifffile_tile(num_channels, level, tx, ty, int(marker), tile_size)
 
-                if i == 0:
-                    target = np.zeros(tile.shape + (3,), np.float32)
-                composite_channel(
-                    target, tile, colors.to_rgb(color), float(start), float(end)
-                )
-            np.clip(target, 0, 1, out=target)
-            target_u8 = (target * 255).astype(np.uint8)
-            img = Image.frombytes('RGB', target.T.shape[1:], target_u8.tobytes())
-            img.save(output_file, quality=85)
+                channels.append({
+                    "image": tile,
+                    "color": colors.to_rgb(color),
+                    "min": float(start),
+                    "max": float(end)
+                })
+
+            target_u8 = render.composite_channels(channels, gamma=1.0)
+            imagecodecs.imwrite(output_file, target_u8, codec='jpeg', level=85)
 
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level
@@ -385,6 +390,19 @@ def open_input_file(path):
         G['opener'] = Opener(path)
     tiff_lock.release()
 
+
+def nocache(view):
+    @wraps(view)
+    def no_cache(*args, **kwargs):
+        response = make_response(view(*args, **kwargs))
+        response.headers['Last-Modified'] = datetime.now()
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '-1'
+        return response
+
+    return update_wrapper(no_cache, view)
+
 @app.route('/')
 def root():
     """
@@ -398,6 +416,7 @@ def root():
 
 @app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
+@nocache
 def u16_image(channel, level, x, y):
     """
     Returns a single channel 16-bit tile from the image
@@ -428,12 +447,14 @@ def u16_image(channel, level, x, y):
 
 @app.route('/api/out/<path:path>')
 @cross_origin()
+@nocache
 def out_image(path):
     image_path = os.path.join(G['out_dir'], path)
     return send_file(image_path, mimetype='image/jpeg')
 
 @app.route('/api/yaml', methods=['GET', 'POST'])
 @cross_origin()
+@nocache
 def api_yaml():
     yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
     response = make_response(yaml_text, 200)
@@ -443,6 +464,7 @@ def api_yaml():
 
 @app.route('/api/stories', methods=['POST'])
 @cross_origin()
+@nocache
 def api_stories():
 
     def format_arrow(a):
@@ -488,6 +510,7 @@ def api_stories():
 
 @app.route('/api/minerva/yaml', methods=['POST'])
 @cross_origin()
+@nocache
 def api_minerva_yaml():
 
     def make_yaml(d):
@@ -528,6 +551,7 @@ def api_minerva_yaml():
 
 @app.route('/api/save', methods=['POST'])
 @cross_origin()
+@nocache
 def api_save():
     """
     Saves minerva-author project information in dat-file.
@@ -560,6 +584,7 @@ def render_progress_callback(current, max):
 
 @app.route('/api/render/progress', methods=['GET'])
 @cross_origin()
+@nocache
 def get_render_progress():
     """
     Returns progress of rendering of tiles (0-100). The progress bar in minerva-author-ui uses this endpoint.
@@ -573,6 +598,7 @@ def get_render_progress():
 
 @app.route('/api/render', methods=['POST'])
 @cross_origin()
+@nocache
 def api_render():
     """
     Renders all image tiles and saves them under new minerva-story instance.
@@ -636,6 +662,7 @@ def api_render():
 
 @app.route('/api/import/groups', methods=['POST'])
 @cross_origin()
+@nocache
 def api_import_groups():
     if request.method == 'POST':
         data = request.json
@@ -653,6 +680,7 @@ def api_import_groups():
 
 @app.route('/api/import', methods=['GET', 'POST'])
 @cross_origin()
+@nocache
 def api_import():
     if request.method == 'GET':
 
@@ -755,7 +783,7 @@ def api_import():
         fh = logging.FileHandler(str(out_log))
         fh.setLevel(logging.DEBUG)
         ch = logging.StreamHandler()
-        ch.setLevel(logging.ERROR)
+        ch.setLevel(logging.INFO)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         ch.setFormatter(formatter)
         fh.setFormatter(formatter)
@@ -778,6 +806,7 @@ def api_import():
 
 @app.route('/api/filebrowser', methods=['GET'])
 @cross_origin()
+@nocache
 def file_browser():
     """
     Endpoint which allows browsing the local file system
