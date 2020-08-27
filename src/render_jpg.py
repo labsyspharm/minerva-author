@@ -13,23 +13,9 @@ from matplotlib import colors
 import csv
 import json
 import yaml
+import time
 import os
 from collections import OrderedDict
-
-def composite_channel(target, image, color, range_min, range_max):
-    ''' Render _image_ in pseudocolor and composite into _target_
-    Args:
-        target: Numpy float32 array containing composition target image
-        image: Numpy uint16 array of image to render and composite
-        color: Color as r, g, b float array, 0-1
-        range_min: Threshhold range minimum, 0-65535
-        range_max: Threshhold range maximum, 0-65535
-    '''
-    f_image = (image.astype('float32') - range_min) / (range_max - range_min)
-    f_image = f_image.clip(0,1, out=f_image)
-    for i, component in enumerate(color):
-        target[:, :, i] += f_image * component
-
 
 def _calculate_total_tiles(opener, tile_size, num_levels, num_channels):
     tiles = 0
@@ -40,7 +26,6 @@ def _calculate_total_tiles(opener, tile_size, num_levels, num_channels):
     return tiles
 
 def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows, logger, progress_callback=None):
-
     EXT = 'jpg'
 
     print('Processing:', str(opener.path))
@@ -118,4 +103,3 @@ def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows,
                 progress += 1
                 if progress_callback is not None:
                     progress_callback(progress, len(render_groups)*total_tiles)
-

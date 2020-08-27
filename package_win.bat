@@ -1,1 +1,1 @@
-pyinstaller -F --paths $env:CONDA_PREFIX --hidden-import="pkg_resources.py2_warn" --add-data "static;static" --add-data "minerva-story;minerva-story" src/app.py
+pyinstaller -F --paths $env:CONDA_PREFIX --hidden-import="pkg_resources.py2_warn" --add-data "static;static" --add-data "minerva-story;minerva-story" --icon icon.ico --name minerva_author src/app.py
