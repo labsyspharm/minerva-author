@@ -312,15 +312,14 @@ class Opener:
                 tile = self.get_tifffile_tile(num_channels, level, tx, ty, int(marker), tile_size)
 
                 channels.append({
-                    "image": tile,
+                    "image": tile.copy(),  # copy needed because otherwise rendering code will fail
                     "color": colors.to_rgb(color),
                     "min": float(start/65535),
                     "max": float(end/65535)
                 })
 
-            target_u8 = render.composite_channels(channels, gamma=1.0)
-
-            imagecodecs.imwrite(output_file, target_u8, codec='jpeg', level=85)
+            target_u8_c = render.composite_channels(channels, gamma=1.0)
+            imagecodecs.imwrite(output_file, target_u8_c, codec='jpeg', level=85)
 
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level

@@ -26,7 +26,6 @@ def _calculate_total_tiles(opener, tile_size, num_levels, num_channels):
     return tiles
 
 def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows, logger, progress_callback=None):
-    start = time.time()
     EXT = 'jpg'
 
     print('Processing:', str(opener.path))
@@ -104,5 +103,3 @@ def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows,
                 progress += 1
                 if progress_callback is not None:
                     progress_callback(progress, total_tiles)
-
-    print("TIME: ", (time.time() - start))
