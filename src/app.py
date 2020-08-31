@@ -29,13 +29,14 @@ from flask import send_file
 from flask import make_response
 from render_png import render_tile
 from render_jpg import render_color_tiles
+from render_jpg import composite_channel
 from storyexport import create_story_base, get_story_folders
 from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
 from functools import wraps, update_wrapper
 from datetime import datetime
-from minerva_lib import render
+#from minerva_lib import render
 import multiprocessing
 import logging
 import atexit
@@ -303,23 +304,24 @@ class Opener:
             img.save(output_file, quality=85)
 
         elif self.reader == 'tifffile':
-            channels = []
             for i, (marker, color, start, end) in enumerate(zip(
-                settings['Channel Number'], settings['Color'],
-                settings['Low'], settings['High']
+                    settings['Channel Number'], settings['Color'],
+                    settings['Low'], settings['High']
             )):
                 num_channels = self.get_shape()[0]
                 tile = self.get_tifffile_tile(num_channels, level, tx, ty, int(marker), tile_size)
 
-                channels.append({
-                    "image": tile.copy(),  # copy needed because otherwise rendering code will fail
-                    "color": colors.to_rgb(color),
-                    "min": float(start/65535),
-                    "max": float(end/65535)
-                })
+                if i == 0:
+                    target = np.zeros(tile.shape + (3,), np.float32)
 
-            target_u8_c = render.composite_channels(channels, gamma=1.0)
-            imagecodecs.imwrite(output_file, target_u8_c, codec='jpeg', level=85)
+                composite_channel(
+                    target, tile, colors.to_rgb(color), float(start), float(end)
+                )
+
+            np.clip(target, 0, 1, out=target)
+            target_u8 = (target * 255).astype(np.uint8)
+            img = Image.frombytes('RGB', target.T.shape[1:], target_u8.tobytes())
+            img.save(output_file, quality=85)
 
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level
