@@ -1,3 +1,5 @@
+import json
+
 from imagecodecs import _zlib # Needed for pyinstaller
 from imagecodecs import _imcd # Needed for pyinstaller
 from imagecodecs import _jpeg8 # Needed for pyinstaller
@@ -327,14 +329,16 @@ class Opener:
             img.save(output_file, quality=85)
 
 
-def api_error(status, message):
+def api_error(status, message, ex=None):
     return jsonify({
-        "error": message
+        "error": message,
+        "exception": str(ex)
     }), status
 
 def reset_globals():
     _g = {
         'in_file': None,
+        'image_uuid': None,
         'opener': None,
         'csv_file': None,
         'out_dir': None,
@@ -508,45 +512,55 @@ def api_stories():
         YAML['Stories'] = list(make_stories(data))
         return 'OK'
 
-@app.route('/api/minerva/yaml', methods=['POST'])
+@app.route('/api/minerva/save', methods=['POST'])
 @cross_origin()
 @nocache
-def api_minerva_yaml():
+def api_minerva_save():
+    """
+    Minerva Cloud specific saving method
+    Creates yaml story description and minerva-story instance.
+    Returns: OK on success
+
+    """
 
     def make_yaml(d):
         for group in d:
             channels = group['channels']
 
             yield {
-                'Path': group['id'],
+                'Path': group['uuid'],
                 'Name': group['label'],
                 'Colors': [c['color'] for c in channels],
                 'Channels': [c['label'] for c in channels]
             }
 
-    if request.method == 'POST':
-        groups = request.json['groups']
-        img = request.json['image']
+    groups = request.json['groups']
+    img = request.json['image']
 
-        YAML['Groups'] = list(make_yaml(groups))
-        if not img['url'].endswith('/'):
-            img['url'] = img['url'] + '/'
+    YAML['Groups'] = list(make_yaml(groups))
+    if not img['url'].endswith('/'):
+        img['url'] = img['url'] + '/'
 
-        YAML['Images'] = [{
-            'Name': 'i0',
-            'Description': '',
-            'Provider': 'minerva',
-            'Path': img['url'] + img['id'] + '/prerendered-tile/',
-            'Width': img['width'],
-            'Height': img['height'],
-            'MaxLevel': img['maxLevel']
-        }]
+    YAML['Images'] = [{
+        'Name': 'i0',
+        'Description': '',
+        'Provider': 'minerva-public',
+        'Path': img['url'] + img['id'] + '/prerendered-tile/',
+        'Width': img['width'],
+        'Height': img['height'],
+        'MaxLevel': img['maxLevel']
+    }]
 
-        with open('out.yaml', 'w') as wf:
-            yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
-            wf.write(yaml_text)
+    create_story_base(G['out_name'])
 
-        return 'OK'
+    out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
+    G['out_yaml'] = out_yaml
+
+    with open(G['out_yaml'], 'w') as wf:
+        yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
+        wf.write(yaml_text)
+
+    return 'OK'
 
 
 @app.route('/api/save', methods=['POST'])
@@ -562,6 +576,7 @@ def api_save():
         data = request.json
         data['in_file'] = G['in_file']
         data['csv_file'] = G['csv_file']
+        data['image_uuid'] = G['image_uuid']
         G['sample_info'] = data['sample_info']
         G['waypoints'] = data['waypoints']
         G['groups'] = data['groups']
@@ -576,7 +591,6 @@ def api_save():
         pickle.dump( data, open( G['out_dat'], 'wb' ) )
 
         return 'OK'
-    
 
 def render_progress_callback(current, max):
     G['save_progress'] = current
@@ -695,14 +709,16 @@ def api_import():
             'height': G['height'],
             'width': G['width'],
             'warning': G['opener'].warning if G['opener'] else '',
-            'rgba': G['opener'].is_rgba() if G['opener'] else False
+            'rgba': G['opener'].is_rgba() if G['opener'] else False,
+            'imageUuid': G['image_uuid']
         })
 
     if request.method == 'POST':
         chanLabel = {}
         data = request.form
+        image_uuid = data['imageUuid']
         input_file = pathlib.Path(data['filepath'])
-        if not os.path.exists(input_file):
+        if len(data['filepath']) > 0 and not os.path.exists(input_file):
             return api_error(404, 'Image file not found: ' + str(input_file))
 
         if (input_file.suffix == '.dat'):
@@ -722,6 +738,7 @@ def api_import():
 
             G['waypoints'] = saved['waypoints']
             G['groups'] = saved['groups']
+            image_uuid = saved['image_uuid']
             for group in saved['groups']:
                 for chan in group['channels']:
                     chanLabel[str(chan['id'])] = chan['label']
@@ -735,31 +752,32 @@ def api_import():
         out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name)
 
         try:
-            print("Opening file: ", str(input_file))
+            if data['loadFrom'] == "local":
+                print("Opening file: ", str(input_file))
 
-            if G['opener'] is None:
-                open_input_file(str(input_file))
+                if G['opener'] is None:
+                    open_input_file(str(input_file))
 
 
-            (num_channels, num_levels, width, height) = G['opener'].get_shape()
-            tilesize = G['opener'].tilesize
+                (num_channels, num_levels, width, height) = G['opener'].get_shape()
+                tilesize = G['opener'].tilesize
 
-            YAML['Images'] = [{
-                'Name': 'i0',
-                'Description': '',
-                'Path': 'http://127.0.0.1:2020/api/out',
-                'Width': width,
-                'Height': height,
-                'MaxLevel': num_levels - 1
-            }]
-            G['maxLevel'] = num_levels - 1
-            G['tilesize'] = tilesize
-            G['height'] = height
-            G['width'] = width
+                YAML['Images'] = [{
+                    'Name': 'i0',
+                    'Description': '',
+                    'Path': 'http://127.0.0.1:2020/api/out',
+                    'Width': width,
+                    'Height': height,
+                    'MaxLevel': num_levels - 1
+                }]
+                G['maxLevel'] = num_levels - 1
+                G['tilesize'] = tilesize
+                G['height'] = height
+                G['width'] = width
 
         except Exception as e:
             print (e)
-            return api_error(500, 'Invalid tiff file')
+            return api_error(500, 'Invalid tiff file', e)
 
         def yield_labels(num_channels): 
             label_num = 0
@@ -776,9 +794,12 @@ def api_import():
                 label_num += 1
 
         try:
+            if data['loadFrom'] == "cloud":
+                num_channels = int(data['numChannels'])
+
             labels = list(yield_labels(num_channels))
         except Exception as e:
-            return api_error(500, "Error in opening marker csv file")
+            return api_error(500, "Error in opening marker csv file", e)
 
         fh = logging.FileHandler(str(out_log))
         fh.setLevel(logging.DEBUG)
@@ -790,19 +811,38 @@ def api_import():
         G['logger'].addHandler(ch)
         G['logger'].addHandler(fh)
 
-        if os.path.exists(input_file):
-            G['out_yaml'] = str(out_yaml)
-            G['out_dat'] = str(out_dat)
-            G['out_dir'] = str(out_dir)
-            G['out_name'] = out_name
-            G['in_file'] = str(input_file)
-            G['csv_file'] = str(csv_file)
-            G['channels'] = labels
-            G['loaded'] = True
-        else:
-            G['logger'].error(f'Input file {input_file} does not exist')
+        G['out_yaml'] = str(out_yaml)
+        G['out_dat'] = str(out_dat)
+        G['out_dir'] = str(out_dir)
+        G['out_name'] = out_name
+        G['in_file'] = str(input_file)
+        G['image_uuid'] = str(image_uuid)
+        G['csv_file'] = str(csv_file)
+        G['channels'] = labels
+        G['loaded'] = True
 
         return 'OK'
+
+@app.route('/api/configuration', methods=['GET'])
+@cross_origin()
+@nocache
+def get_configuration():
+    # Check if running PyInstaller executable
+    if hasattr(sys, '_MEIPASS'):
+        config_path = os.path.join(sys._MEIPASS, 'config.json')
+    else:
+        # Running with Python interpreter
+        config_path = '../configs/config.json'
+
+    if not os.path.exists(config_path):
+        logging.warning("No config file found from %s", config_path)
+        return jsonify({
+            "enableCloudFeatures": False
+        })
+
+    with open(config_path) as config_file:
+        config = json.load(config_file)
+        return jsonify(config)
 
 @app.route('/api/filebrowser', methods=['GET'])
 @cross_origin()
@@ -902,10 +942,9 @@ def open_browser():
 
 
 if __name__ == '__main__':
-    Timer(1, open_browser).start()
-
     atexit.register(close_tiff)
     if '--dev' in sys.argv:
         app.run(debug=False, port=PORT)
     else:
+        Timer(1, open_browser).start()
         serve(app, listen="127.0.0.1:" + str(PORT), threads=10)
