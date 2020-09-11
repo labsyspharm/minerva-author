@@ -52,11 +52,11 @@ def get_story_folders(title, create=False):
     yaml_folder = os.path.join(folder, out_name, 'minerva-story', '_data', out_name)
     out_yaml = os.path.join(yaml_folder, out_name + '.yaml')
 
-    out_dat = os.path.join(folder, out_name + '.dat')
+    out_json = os.path.join(folder, out_name + '.json')
     out_log = os.path.join(folder, out_name + '.log')
 
     if create:
         os.makedirs(images_folder, exist_ok=True)
         os.makedirs(yaml_folder, exist_ok=True)
 
-    return out_dir, out_yaml, out_dat, out_log
+    return out_dir, out_yaml, out_json, out_log
