@@ -1,3 +1,5 @@
+import json
+
 from imagecodecs import _zlib # Needed for pyinstaller
 from imagecodecs import _imcd # Needed for pyinstaller
 from imagecodecs import _jpeg8 # Needed for pyinstaller
@@ -36,7 +38,6 @@ from pathlib import Path
 from waitress import serve
 from functools import wraps, update_wrapper
 from datetime import datetime
-#from minerva_lib import render
 import multiprocessing
 import logging
 import atexit
@@ -575,7 +576,8 @@ def api_save():
         G['out_dir'] = out_dir
         G['out_log'] = out_log
 
-        pickle.dump( data, open( G['out_dat'], 'wb' ) )
+        with open(G['out_dat'], 'w') as out_file:
+            json.dump(data, out_file)
 
         return 'OK'
     
@@ -707,8 +709,13 @@ def api_import():
         if not os.path.exists(input_file):
             return api_error(404, 'Image file not found: ' + str(input_file))
 
-        if (input_file.suffix == '.dat'):
-            saved = pickle.load( open( input_file, "rb" ) )
+        if (input_file.suffix == '.dat' or input_file.suffix == '.json'):
+            if input_file.suffix == '.dat':
+                saved = pickle.load( open( input_file, "rb" ) )
+            else:
+                with open(input_file) as json_file:
+                    saved = json.load(json_file)
+
             input_file = pathlib.Path(saved['in_file'])
             if (data['csvpath']):
                 csv_file = pathlib.Path(data['csvpath'])
