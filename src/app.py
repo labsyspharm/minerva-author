@@ -38,7 +38,6 @@ from pathlib import Path
 from waitress import serve
 from functools import wraps, update_wrapper
 from datetime import datetime
-#from minerva_lib import render
 import multiprocessing
 import logging
 import atexit
@@ -579,7 +578,6 @@ def api_save():
 
         with open(G['out_dat'], 'w') as out_file:
             json.dump(data, out_file)
-        #pickle.dump( data, open( G['out_dat'], 'wb' ) )
 
         return 'OK'
     
