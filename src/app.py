@@ -172,7 +172,7 @@ class Opener:
                 return max(counts) == 1
 
             small_levels = list(filter(has_one_tile, self.dz.level_tiles))
-            level_count = self.dz.level_count - len(small_levels)
+            level_count = self.dz.level_count - len(small_levels) + 1
 
             return (3, level_count, width, height)
 
