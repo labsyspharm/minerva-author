@@ -1,5 +1,5 @@
 import os, sys
-from distutils import dir_util
+from distutils import file_util
 
 
 def create_story_base(title):
@@ -20,10 +20,11 @@ def create_story_base(title):
         # Not running pyinstaller executable; minerva-story should exist in parent directory
         story_dir = os.path.join(current_dir, '..', 'minerva-story')
 
-    exported_story_dir = os.path.join(export_dir, 'minerva-story')
-    os.makedirs(exported_story_dir, exist_ok=True)
+    images_dir = os.path.join(export_dir, 'images')
+    os.makedirs(images_dir, exist_ok=True)
 
-    dir_util.copy_tree(story_dir, exported_story_dir)
+    file_util.copy_file(os.path.join(story_dir, 'index.html'), export_dir)
+    file_util.copy_file(os.path.join(story_dir, 'bundle.js'), export_dir)
 
 def get_story_folders(title, create=False):
     """
@@ -36,12 +37,10 @@ def get_story_folders(title, create=False):
     """
     out_name = title.replace(' ', '_')
     folder = os.path.dirname(os.path.abspath(sys.argv[0]))
-    images_folder = os.path.join(folder, out_name, 'minerva-story', 'images')
-
+    images_folder = os.path.join(folder, out_name, 'images')
     out_dir = os.path.join(images_folder, out_name)
 
-    includes_folder = os.path.join(folder, out_name, 'minerva-story', 'includes')
-    out_json_config = os.path.join(includes_folder, 'exhibit.json')
+    out_json_config = os.path.join(folder, out_name, 'exhibit.json')
 
     out_json_save = os.path.join(folder, out_name + '.json')
     out_log = os.path.join(folder, out_name + '.log')
