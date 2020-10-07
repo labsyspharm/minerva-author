@@ -8,7 +8,7 @@ import string
 import sys
 import os
 import csv
-import yaml
+import json
 import math
 import time
 from tifffile import TiffFile
@@ -29,13 +29,13 @@ from flask import send_file
 from flask import make_response
 from render_png import render_tile
 from render_jpg import render_color_tiles
+from render_jpg import composite_channel
 from storyexport import create_story_base, get_story_folders
 from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
 from functools import wraps, update_wrapper
 from datetime import datetime
-from minerva_lib import render
 import multiprocessing
 import logging
 import atexit
@@ -170,7 +170,7 @@ class Opener:
                 return max(counts) == 1
 
             small_levels = list(filter(has_one_tile, self.dz.level_tiles))
-            level_count = self.dz.level_count - len(small_levels)
+            level_count = self.dz.level_count - len(small_levels) + 1
 
             return (3, level_count, width, height)
 
@@ -303,23 +303,24 @@ class Opener:
             img.save(output_file, quality=85)
 
         elif self.reader == 'tifffile':
-            channels = []
             for i, (marker, color, start, end) in enumerate(zip(
-                settings['Channel Number'], settings['Color'],
-                settings['Low'], settings['High']
+                    settings['Channel Number'], settings['Color'],
+                    settings['Low'], settings['High']
             )):
                 num_channels = self.get_shape()[0]
                 tile = self.get_tifffile_tile(num_channels, level, tx, ty, int(marker), tile_size)
 
-                channels.append({
-                    "image": tile.copy(),  # copy needed because otherwise rendering code will fail
-                    "color": colors.to_rgb(color),
-                    "min": float(start/65535),
-                    "max": float(end/65535)
-                })
+                if i == 0:
+                    target = np.zeros(tile.shape + (3,), np.float32)
 
-            target_u8_c = render.composite_channels(channels, gamma=1.0)
-            imagecodecs.imwrite(output_file, target_u8_c, codec='jpeg', level=85)
+                composite_channel(
+                    target, tile, colors.to_rgb(color), float(start), float(end)
+                )
+
+            np.clip(target, 0, 1, out=target)
+            target_u8 = (target * 255).astype(np.uint8)
+            img = Image.frombytes('RGB', target.T.shape[1:], target_u8.tobytes())
+            img.save(output_file, quality=85)
 
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level
@@ -452,16 +453,6 @@ def out_image(path):
     image_path = os.path.join(G['out_dir'], path)
     return send_file(image_path, mimetype='image/jpeg')
 
-@app.route('/api/yaml', methods=['GET', 'POST'])
-@cross_origin()
-@nocache
-def api_yaml():
-    yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
-    response = make_response(yaml_text, 200)
-    response.mimetype = "text/plain"
-    return response
-
-
 @app.route('/api/stories', methods=['POST'])
 @cross_origin()
 @nocache
@@ -508,47 +499,6 @@ def api_stories():
         YAML['Stories'] = list(make_stories(data))
         return 'OK'
 
-@app.route('/api/minerva/yaml', methods=['POST'])
-@cross_origin()
-@nocache
-def api_minerva_yaml():
-
-    def make_yaml(d):
-        for group in d:
-            channels = group['channels']
-
-            yield {
-                'Path': group['id'],
-                'Name': group['label'],
-                'Colors': [c['color'] for c in channels],
-                'Channels': [c['label'] for c in channels]
-            }
-
-    if request.method == 'POST':
-        groups = request.json['groups']
-        img = request.json['image']
-
-        YAML['Groups'] = list(make_yaml(groups))
-        if not img['url'].endswith('/'):
-            img['url'] = img['url'] + '/'
-
-        YAML['Images'] = [{
-            'Name': 'i0',
-            'Description': '',
-            'Provider': 'minerva',
-            'Path': img['url'] + img['id'] + '/prerendered-tile/',
-            'Width': img['width'],
-            'Height': img['height'],
-            'MaxLevel': img['maxLevel']
-        }]
-
-        with open('out.yaml', 'w') as wf:
-            yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
-            wf.write(yaml_text)
-
-        return 'OK'
-
-
 @app.route('/api/save', methods=['POST'])
 @cross_origin()
 @nocache
@@ -573,7 +523,8 @@ def api_save():
         G['out_dir'] = out_dir
         G['out_log'] = out_log
 
-        pickle.dump( data, open( G['out_dat'], 'wb' ) )
+        with open(G['out_dat'], 'w') as out_file:
+            json.dump(data, out_file)
 
         return 'OK'
     
@@ -652,8 +603,8 @@ def api_render():
         G['out_yaml'] = out_yaml
 
         with open(G['out_yaml'], 'w') as wf:
-            yaml_text = yaml.dump({'Exhibit': YAML}, allow_unicode=True)
-            wf.write(yaml_text)
+            json_text = json.dumps(YAML, ensure_ascii=False)
+            wf.write(json_text)
 
         render_color_tiles(G['opener'], G['out_dir'], 1024,
                            len(G['channels']), config_rows, G['logger'], progress_callback=render_progress_callback)
@@ -705,8 +656,13 @@ def api_import():
         if not os.path.exists(input_file):
             return api_error(404, 'Image file not found: ' + str(input_file))
 
-        if (input_file.suffix == '.dat'):
-            saved = pickle.load( open( input_file, "rb" ) )
+        if (input_file.suffix == '.dat' or input_file.suffix == '.json'):
+            if input_file.suffix == '.dat':
+                saved = pickle.load( open( input_file, "rb" ) )
+            else:
+                with open(input_file) as json_file:
+                    saved = json.load(json_file)
+
             input_file = pathlib.Path(saved['in_file'])
             if (data['csvpath']):
                 csv_file = pathlib.Path(data['csvpath'])

@@ -25,23 +25,14 @@ def create_story_base(title):
 
     dir_util.copy_tree(story_dir, exported_story_dir)
 
-    markdown_path = os.path.join(current_dir, title, 'minerva-story', 'index.md')
-    markdown = f"""---
-layout: osd-exhibit
-paper: {title}
-figure: {title}
----"""
-    with open(markdown_path, "w") as f:
-        f.write(markdown)
-
 def get_story_folders(title, create=False):
     """
-    Gets paths to folders where image tiles, yaml, dat-file and log file must be saved.
+    Gets paths to folders where image tiles, json, dat-file and log file must be saved.
     Args:
         title: Story title
         create: Whether folders should be created
 
-    Returns: Tuple of images dir, yaml dir, dat dir, log dir
+    Returns: Tuple of images dir, json config dir, json save dir, log dir
     """
     out_name = title.replace(' ', '_')
     folder = os.path.dirname(os.path.abspath(sys.argv[0]))
@@ -49,14 +40,13 @@ def get_story_folders(title, create=False):
 
     out_dir = os.path.join(images_folder, out_name)
 
-    yaml_folder = os.path.join(folder, out_name, 'minerva-story', '_data', out_name)
-    out_yaml = os.path.join(yaml_folder, out_name + '.yaml')
+    includes_folder = os.path.join(folder, out_name, 'minerva-story', 'includes')
+    out_json_config = os.path.join(includes_folder, 'exhibit.json')
 
-    out_dat = os.path.join(folder, out_name + '.dat')
+    out_json_save = os.path.join(folder, out_name + '.json')
     out_log = os.path.join(folder, out_name + '.log')
 
     if create:
         os.makedirs(images_folder, exist_ok=True)
-        os.makedirs(yaml_folder, exist_ok=True)
 
-    return out_dir, out_yaml, out_dat, out_log
+    return out_dir, out_json_config, out_json_save, out_log
