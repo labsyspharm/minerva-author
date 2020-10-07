@@ -12,6 +12,7 @@ The Python Flask server along with automated testing is stored at [minerva-autho
 ```
 git clone git@github.com:labsyspharm/minerva-author.git
 cd minerva-author
+git submodule update --init --recursive
 conda config --add channels conda-forge
 conda create --name author python=3.6 nomkl
 conda activate author
