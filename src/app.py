@@ -415,6 +415,29 @@ def root():
     G, YAML = reset_globals()
     return app.send_static_file('index.html')
 
+@app.route('/story/', defaults={'path': 'index.html'})
+@app.route('/story/<path:path>')
+@cross_origin()
+@nocache
+def out_story(path):
+    if G['out_yaml'] is None:
+        response = make_response('Not found', 404)
+        response.mimetype = "text/plain"
+        return response
+    out_dir = os.path.dirname(G['out_yaml'])
+    return send_file(os.path.join(out_dir, path))
+
+@app.route('/images/<path:path>')
+@cross_origin()
+@nocache
+def out_images(path):
+    if G['out_dir'] is None:
+        response = make_response('Not found', 404)
+        response.mimetype = "text/plain"
+        return response
+    out_dir = os.path.dirname(G['out_dir'])
+    return send_file(os.path.join(out_dir, path))
+
 @app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
 @nocache
@@ -444,7 +467,6 @@ def u16_image(channel, level, x, y):
         return response
  
     return send_file(img_io, mimetype='image/png')
-
 
 @app.route('/api/out/<path:path>')
 @cross_origin()
