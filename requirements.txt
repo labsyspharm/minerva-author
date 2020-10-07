@@ -11,4 +11,5 @@ openslide-python>=1.1.1
 pytest
 imagecodecs>=2020.5.30
 tifffile>=2020.7.4
-#git+https://github.com/labsyspharm/minerva-lib-python@master#egg=minerva-lib
+git+https://github.com/labsyspharm/minerva-lib-python@master#egg=minerva-lib
+matplotlib==3.2.2
