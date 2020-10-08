@@ -427,17 +427,6 @@ def out_story(path):
     out_dir = os.path.dirname(G['out_yaml'])
     return send_file(os.path.join(out_dir, path))
 
-@app.route('/images/<path:path>')
-@cross_origin()
-@nocache
-def out_images(path):
-    if G['out_dir'] is None:
-        response = make_response('Not found', 404)
-        response.mimetype = "text/plain"
-        return response
-    out_dir = os.path.dirname(G['out_dir'])
-    return send_file(os.path.join(out_dir, path))
-
 @app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
 @nocache
@@ -617,7 +606,7 @@ def api_render():
         YAML['Rotation'] = request.json['rotation']
         sample_name = request.json['image']['description']
         YAML['Images'][0]['Description'] = sample_name
-        YAML['Images'][0]['Path'] = '/images/' + G['out_name']
+        YAML['Images'][0]['Path'] = 'images/' + G['out_name']
 
         create_story_base(G['out_name'])
 
