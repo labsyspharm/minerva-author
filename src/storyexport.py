@@ -1,8 +1,45 @@
 import os, sys
 from distutils import file_util
 
+def deduplicate_path(data_path, data_dict, data_dir):
+    """
+    Return a local path for given data path
+    Args:
+        data_path: the full path of the file to copy
+        data_dict: the existing mapping of local paths
+        data_dir: the full path of the destination directory
+    """
+    n_dups = 0
+    basename = os.path.basename(data_path)
+    local_path = os.path.join(data_dir, basename)
+    while local_path in data_dict.values():
+        root, ext = os.path.splitext(basename) 
+        basename = f'{root}_{n_dups}{ext}'
+        local_path = os.path.join(data_dir, basename)
+        n_dups += 1
+    return local_path
 
-def create_story_base(title):
+def deduplicate_data(waypoints, data_dir):
+    """
+    Map filesystem paths to local data paths
+    Args:
+        waypoints: list of dicts containing optional VisData keys
+        data_dir: the full path of the destination directory
+    """
+    data_dict = dict()
+    for waypoint in waypoints:
+        for vis in ['VisScatterplot', 'VisCanvasScatterplot']:
+            if vis in waypoint:
+                data_path = waypoint[vis]['data']
+                data_dict[data_path] = deduplicate_path(data_path, data_dict, data_dir)
+        for vis in ['VisMatrix', 'VisBarChart']:
+            if vis in waypoint:
+                data_path = waypoint[vis]
+                data_dict[data_path] = deduplicate_path(data_path, data_dict, data_dir)
+
+    return data_dict
+
+def create_story_base(title, waypoints):
     """
     Creates a new minerva-story instance under subfolder named title. The subfolder will be created.
     Args:
@@ -20,11 +57,25 @@ def create_story_base(title):
         # Not running pyinstaller executable; minerva-story should exist in parent directory
         story_dir = os.path.join(current_dir, '..', 'minerva-story')
 
+    data_dir = os.path.join(export_dir, 'data')
     images_dir = os.path.join(export_dir, 'images')
+    os.makedirs(data_dir, exist_ok=True)
     os.makedirs(images_dir, exist_ok=True)
 
     file_util.copy_file(os.path.join(story_dir, 'index.html'), export_dir)
     file_util.copy_file(os.path.join(story_dir, 'bundle.js'), export_dir)
+
+    data_dict = deduplicate_data(waypoints, data_dir)
+
+    for waypoint in waypoints:
+        for vis in ['VisScatterplot', 'VisCanvasScatterplot']:
+            if vis in waypoint:
+                data_path = waypoint[vis]['data']
+                file_util.copy_file(data_path, data_dict[data_path])
+        for vis in ['VisMatrix', 'VisBarChart']:
+            if vis in waypoint:
+                data_path = waypoint[vis]
+                file_util.copy_file(data_path, data_dict[data_path])
 
 def get_story_folders(title, create=False):
     """
