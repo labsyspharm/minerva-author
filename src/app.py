@@ -30,7 +30,7 @@ from flask import make_response
 from render_png import render_tile
 from render_jpg import render_color_tiles
 from render_jpg import composite_channel
-from storyexport import create_story_base, get_story_folders, deduplicate_data
+from storyexport import create_story_base, get_story_folders
 from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
@@ -97,6 +97,7 @@ class Opener:
         except Exception as e:
             print(e)
             return 5
+
 
     def close(self):
         self.io.close()
@@ -485,10 +486,8 @@ def api_stories():
         }
 
     def make_waypoints(d):
-
-        data_dict = deduplicate_data(d, 'data')
         for waypoint in d:
-            wp = {
+            yield {
                 'Name': waypoint['name'],
                 'Description': waypoint['text'],
                 'Arrows': list(map(format_arrow, waypoint['arrows'])),
@@ -497,17 +496,6 @@ def api_stories():
                 'Zoom': waypoint['zoom'],
                 'Pan': waypoint['pan'],
             }
-            for vis in ['VisScatterplot', 'VisCanvasScatterplot']:
-                if vis in waypoint:
-                    wp[vis] = waypoint[vis]
-                    wp[vis]['data'] = data_dict[wp[vis]['data']]
-
-            for vis in ['VisMatrix', 'VisBarChart']:
-                if vis in waypoint:
-                    wp[vis] = waypoint[vis]
-                    wp[vis] = data_dict[wp[vis]]
-
-            yield wp
 
     def make_stories(d):
         for story in d:
@@ -620,7 +608,7 @@ def api_render():
         YAML['Images'][0]['Description'] = sample_name
         YAML['Images'][0]['Path'] = 'images/' + G['out_name']
 
-        create_story_base(G['out_name'], request.json['waypoints'])
+        create_story_base(G['out_name'])
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
         G['out_yaml'] = out_yaml
