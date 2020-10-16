@@ -28,14 +28,13 @@ def deduplicate_data(waypoints, data_dir):
     """
     data_dict = dict()
     for waypoint in waypoints:
-        for vis in ['VisScatterplot', 'VisCanvasScatterplot']:
+        for vis in ['VisScatterplot', 'VisCanvasScatterplot', 'VisMatrix']:
             if vis in waypoint:
                 data_path = waypoint[vis]['data']
                 data_dict[data_path] = deduplicate_path(data_path, data_dict, data_dir)
-        for vis in ['VisMatrix', 'VisBarChart']:
-            if vis in waypoint:
-                data_path = waypoint[vis]
-                data_dict[data_path] = deduplicate_path(data_path, data_dict, data_dir)
+
+        if 'VisBarChart' in waypoint:
+            data_dict[data_path] = deduplicate_path(waypoint['VisBarChart'], data_dict, data_dir)
 
     return data_dict
 
@@ -68,14 +67,13 @@ def create_story_base(title, waypoints):
     data_dict = deduplicate_data(waypoints, data_dir)
 
     for waypoint in waypoints:
-        for vis in ['VisScatterplot', 'VisCanvasScatterplot']:
+        for vis in ['VisScatterplot', 'VisCanvasScatterplot', 'VisMatrix']:
             if vis in waypoint:
                 data_path = waypoint[vis]['data']
                 file_util.copy_file(data_path, data_dict[data_path])
-        for vis in ['VisMatrix', 'VisBarChart']:
-            if vis in waypoint:
-                data_path = waypoint[vis]
-                file_util.copy_file(data_path, data_dict[data_path])
+
+        if 'VisBarChart' in waypoint:
+            file_util.copy_file(data_path, data_dict[waypoint['VisBarChart']])
 
 def get_story_folders(title, create=False):
     """

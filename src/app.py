@@ -497,15 +497,13 @@ def api_stories():
                 'Zoom': waypoint['zoom'],
                 'Pan': waypoint['pan'],
             }
-            for vis in ['VisScatterplot', 'VisCanvasScatterplot']:
+            for vis in ['VisScatterplot', 'VisCanvasScatterplot', 'VisMatrix']:
                 if vis in waypoint:
                     wp[vis] = waypoint[vis]
                     wp[vis]['data'] = data_dict[wp[vis]['data']]
 
-            for vis in ['VisMatrix', 'VisBarChart']:
-                if vis in waypoint:
-                    wp[vis] = waypoint[vis]
-                    wp[vis] = data_dict[wp[vis]]
+            if 'VisBarChart' in waypoint:
+                wp['VisBarChart'] = data_dict[waypoint['VisBarChart']]
 
             yield wp
 
