@@ -11,6 +11,7 @@ import csv
 import json
 import math
 import time
+import zarr
 from tifffile import TiffFile
 from tifffile import create_output
 import pickle
@@ -57,7 +58,8 @@ class Opener:
         ext = ext2 + ext1
 
         if ext == '.ome.tif' or ext == '.ome.tiff':
-            self.io = TiffFile(self.path)
+            self.io = TiffFile(self.path, is_ome=False)
+            self.group = zarr.open(self.io.series[0].aszarr())
             self.reader = 'tifffile'
             self.ome_version = self._get_ome_version()
             print("OME ", self.ome_version)
@@ -110,20 +112,9 @@ class Opener:
     def get_level_tiles(self, level, tile_size):
         if self.reader == 'tifffile':
 
-            if self.ome_version == 5:
-
-                num_channels = self.get_shape()[0]
-                ifd = self.io.pages[level * num_channels]
-
-            if self.ome_version == 6:
-
-                ifd = self.io.pages[0]
-
-                if level != 0:
-                    ifd = ifd.pages[level - 1]
-
-            ny = int(np.ceil(ifd.shape[0] / tile_size))
-            nx = int(np.ceil(ifd.shape[1] / tile_size))
+            ny = int(np.ceil(self.group[level].shape[1] / tile_size))
+            nx = int(np.ceil(self.group[level].shape[2] / tile_size))
+            print((nx, ny))
             return (nx, ny)
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level
@@ -132,34 +123,10 @@ class Opener:
     def get_shape(self):
         if self.reader == 'tifffile':
 
-            if self.ome_version == 5:
-                num_channels = 0
-                num_pages = 0
-                base_shape = None
-                for page in self.io.pages:
-                    if base_shape is None:
-                        base_shape = page.shape
-                    if base_shape == page.shape:
-                        num_channels += 1
-                    num_pages += 1
-
-                num_levels = num_pages // num_channels
-
-                return (num_channels, num_levels, base_shape[1], base_shape[0])
-
-            if self.ome_version == 6:
-                num_levels = 1
-                num_channels = 0
-                base_shape = None
-                for page in self.io.pages:
-                    if base_shape is None:
-                        base_shape = page.shape
-                    num_channels += 1
-
-                for subpage in self.io.pages[0].pages:
-                    num_levels += 1
-
-                return (num_channels, num_levels, base_shape[1], base_shape[0])
+            num_levels = len(self.group)
+            shape = self.group[0].shape
+            (num_channels, shape_y, shape_x) = shape
+            return (num_channels, num_levels, shape_x, shape_y)
 
         elif self.reader == 'openslide':
 
@@ -173,81 +140,43 @@ class Opener:
 
             return (3, level_count, width, height)
 
-    def read_tiles(self, ifd, tx, ty, tilesize):
+    def read_tiles(self, level, channel_number, tx, ty, tilesize):
         ix = tx * tilesize
         iy = ty * tilesize
 
         try:
-            tile = ifd.asarray()[iy:iy+tilesize, ix:ix+tilesize]
+            tile = self.group[level][channel_number, iy:iy+tilesize, ix:ix+tilesize]
             tile = np.squeeze(tile)
             return tile
         except Exception as e:
             G['logger'].error(e)
             return None
 
-    def read_tile(self, ifd, tx, ty):
-
-        col_n = math.ceil(ifd.shape[0] / ifd.tilelength)
-        row_n = math.ceil(ifd.shape[1] / ifd.tilewidth)
-        row_i = ty * row_n + tx
-
-        offset = ifd._offsetscounts[0][row_i]
-        count = ifd._offsetscounts[1][row_i]
-
-        data, segmentindex = next(self.io.filehandle.read_segments([offset], [count]))
-        tile, index, shape = ifd.decode(data, segmentindex)
-
-        if tx + 1 >= row_n or ty + 1 >= col_n:
-            iy = ifd.tilelength * ty
-            ix = ifd.tilewidth * tx
-            height = max(1, ifd.shape[0] - iy)
-            width = max(1, ifd.shape[1] - ix)
-            tile = np.squeeze(tile)
-            tile = tile[:height, :width]
-            return tile
-        else:
-            tile = np.squeeze(tile)
-            return tile
-
     def get_tifffile_tile(self, num_channels, level, tx, ty, channel_number, tilesize=None):
 
         if self.reader == 'tifffile':
 
-            if self.ome_version == 5:
+            page_base = level * num_channels
+            page = page_base + channel_number
+            ifd = self.io.pages[page]
+            self.tilesize = ifd.tilewidth
 
-                page_base = level * num_channels
-                page = page_base + channel_number
-                ifd = self.io.pages[page]
-                self.tilesize = ifd.tilewidth
+            if (tilesize is None) and self.tilesize == 0:
+                # Warning... return untiled planes as all-black
+                self.tilesize = 1024
+                self.warning = f'Level {level} is not tiled. It will show as all-black.'
+                tile = np.zeros((1024, 1024), dtype=ifd.dtype)
 
-                if (tilesize is None) and self.tilesize == 0:
-                    # Warning... return untiled planes as all-black
-                    self.tilesize = 1024
-                    self.warning = f'Level {level} is not tiled. It will show as all-black.'
-                    tile = np.zeros((1024, 1024), dtype=ifd.dtype)
+            elif (tilesize is not None) and self.tilesize == 0:
+                self.tilesize = tilesize
+                tile = self.read_tiles(level, channel_number, tx, ty, tilesize)
 
-                elif (tilesize is not None) and self.tilesize == 0:
-                    self.tilesize = tilesize
-                    tile = self.read_tiles(ifd, tx, ty, tilesize)
+            elif (tilesize is not None) and (self.tilesize != tilesize):
+                tile = self.read_tiles(level, channel_number, tx, ty, tilesize)
 
-                elif (tilesize is not None) and (self.tilesize != tilesize):
-                    tile = self.read_tiles(ifd, tx, ty, tilesize)
-
-                else:
-                    tile = self.read_tile(ifd, tx, ty)
-
-            if self.ome_version == 6:
-
-                ifd = self.io.pages[channel_number]
-                self.tilesize = ifd.tilewidth
-
-                if level != 0:
-                    ifd = ifd.pages[level - 1]
-
-                if (tilesize is not None) and (self.tilesize != tilesize):
-                    tile = self.read_tiles(ifd, tx, ty, tilesize)
-                else:
-                    tile = self.read_tile(ifd, tx, ty)
+            else:
+                self.tilesize = self.tilesize if self.tilesize else 1024
+                tile = self.read_tiles(level, channel_number, tx, ty, self.tilesize)
 
             if tile is None:
                 return None
