@@ -10,4 +10,5 @@ waitress>=1.4.3
 openslide-python>=1.1.1
 pytest
 imagecodecs>=2020.5.30
-tifffile>=2020.7.4
+tifffile>=2020.10.1
+zarr>=2.5.0
