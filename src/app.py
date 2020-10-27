@@ -178,17 +178,6 @@ class Opener:
             if tile is None:
                 return None
 
-            endianness_map = {
-                '>': 'big',
-                '<': 'little',
-                '=': sys.byteorder,
-                '|': 'not applicable',
-            }
-            endianness = endianness_map[tile.dtype.byteorder]
-            if endianness == 'big':
-                tile = tile.byteswap(inplace=False)
-
-
             return tile
 
     def get_tile(self, num_channels, level, tx, ty, channel_number):
