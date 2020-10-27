@@ -28,10 +28,10 @@ jobs:
       - name: Install dependencies
         run: |
           git submodule update --init --recursive
-          $CONDA/bin/conda config --add channels conda-forge
-          $CONDA/bin/conda create --name author python=3.8 nomkl
-          $CONDA/bin/conda activate author
-          $CONDA/bin/pip install numpy
-          $CONDA/bin/pip  -r requirements.txt
+          $CONDA\bin\conda config --add channels conda-forge
+          $CONDA\bin\conda create --name author python=3.8 nomkl
+          $CONDA\bin\conda activate author
+          $CONDA\bin\pip install numpy
+          $CONDA\bin\pip  -r requirements.txt
       - name: Run PyInstaller
         run: pyinstaller -F --paths $env:CONDA_PREFIX --hidden-import="pkg_resources.py2_warn" --add-data "static;static" --add-data "minerva-story;minerva-story" --icon icon.ico --name minerva_author src/app.py
