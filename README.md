@@ -18,6 +18,7 @@ conda create --name author python=3.7 nomkl
 conda activate author
 pip install numpy
 pip install -r requirements.txt
+conda install zarr
 ```
 
 ### Running
