@@ -153,10 +153,7 @@ class Opener:
 
         if self.reader == 'tifffile':
 
-            page_base = level * num_channels
-            page = page_base + channel_number
-            ifd = self.io.pages[page]
-            self.tilesize = ifd.tilewidth
+            self.tilesize = max(self.io.series[0].pages[0].chunks)
 
             if (tilesize is None) and self.tilesize == 0:
                 # Warning... return untiled planes as all-black
