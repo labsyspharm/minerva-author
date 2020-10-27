@@ -28,6 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           git submodule update --init --recursive
+          echo %CONDA_PREFIX%
           conda config --add channels conda-forge
           conda create --name author python=3.8 nomkl
           conda activate author
