@@ -7,6 +7,10 @@ environment:
 init:
   - "ECHO %PYTHON_VERSION% %MINICONDA%"
 
+artifacts:
+  - path: minerva_author.zip
+    name: MinervaAuthor
+
 install:
   # Issues have been encountered with installing numpy and scipy on
   # AppVeyor e.g.
@@ -26,5 +30,8 @@ install:
 
   - pip install -r requirements.txt
 
-test_script:
+build:
   - pyinstaller -F --paths $env:CONDA_PREFIX --hidden-import="pkg_resources.py2_warn" --add-data "static;static" --add-data "minerva-story;minerva-story" --icon icon.ico --name minerva_author src/app.py
+
+after_build:
+  - 7z a minerva_author.zip dist
