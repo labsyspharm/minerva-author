@@ -1,5 +1,5 @@
 build: false
-
+image: Visual Studio 2017
 environment:
   matrix:
     - PYTHON_VERSION: 3.7
