@@ -62,7 +62,6 @@ def create_story_base(title, waypoints):
     os.makedirs(images_dir, exist_ok=True)
 
     file_util.copy_file(os.path.join(story_dir, 'index.html'), export_dir)
-    file_util.copy_file(os.path.join(story_dir, 'bundle.js'), export_dir)
 
     data_dict = deduplicate_data(waypoints, data_dir)
 
