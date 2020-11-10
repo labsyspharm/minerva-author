@@ -125,7 +125,11 @@ class Opener:
 
             num_levels = len(self.group)
             shape = self.group[0].shape
-            (num_channels, shape_y, shape_x) = shape
+            if len(shape) == 3:
+                (num_channels, shape_y, shape_x) = shape
+            else:
+                (shape_y, shape_x) = shape
+                num_channels = 1
             return (num_channels, num_levels, shape_x, shape_y)
 
         elif self.reader == 'openslide':
@@ -144,8 +148,12 @@ class Opener:
         ix = tx * tilesize
         iy = ty * tilesize
 
+        num_channels = self.get_shape()[0]
         try:
-            tile = self.group[level][channel_number, iy:iy+tilesize, ix:ix+tilesize]
+            if num_channels == 1:
+                tile = self.group[level][iy:iy+tilesize, ix:ix+tilesize]
+            else:
+                tile = self.group[level][channel_number, iy:iy+tilesize, ix:ix+tilesize]
             tile = np.squeeze(tile)
             return tile
         except Exception as e:
