@@ -2,6 +2,7 @@ from imagecodecs import _zlib # Needed for pyinstaller
 from imagecodecs import _imcd # Needed for pyinstaller
 from imagecodecs import _jpeg8 # Needed for pyinstaller
 from imagecodecs import _jpeg2k # Needed for pyinstaller
+from urllib.parse import unquote
 import pathlib
 import re
 import string
@@ -188,7 +189,7 @@ class Opener:
 
             return tile
 
-    def get_tile(self, num_channels, level, tx, ty, channel_number):
+    def get_tile(self, num_channels, level, tx, ty, channel_number, fmt=None):
         
         if self.reader == 'tifffile':
  
@@ -202,8 +203,24 @@ class Opener:
                 tile[:, :, 2] = tile_2
                 format = 'I;8'
             else:
-                tile = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
-                format = 'I;16'
+                tile_ = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
+                if fmt == 'I;8':
+                    tile = np.zeros((tile_.shape[0], tile_.shape[1], 4), dtype=np.uint8)
+                    rgba_dt=np.dtype((np.int32, {
+                        'f0':(np.uint8,0),
+                        'f1':(np.uint8,1),
+                        'f2':(np.uint8,2),
+                        'f3':(np.uint8,3)
+                    }))
+                    tile_=tile_.view(dtype=rgba_dt)
+                    tile[:, :, 0] = tile_['f0']
+                    tile[:, :, 1] = tile_['f1']
+                    tile[:, :, 2] = tile_['f2']
+                    tile[:, :, 3] = tile_['f3']
+                else:
+                    tile = tile_
+
+                format = fmt if fmt else 'I;16'
 
             return Image.fromarray(tile, format)
 
@@ -281,6 +298,7 @@ def reset_globals():
             'name': '',
             'text': ''
         },
+        'masks': {},
         'groups': [],
         'waypoints': [],
         'channels': [],
@@ -319,11 +337,18 @@ cors = CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
 def open_input_file(path):
+    global G
     tiff_lock.acquire()
     if G['opener'] is None and path is not None:
         G['opener'] = Opener(path)
     tiff_lock.release()
 
+def open_input_mask(path):
+    global G
+    tiff_lock.acquire()
+    if path not in G['masks']:
+        G['masks'][path] = Opener(path)
+    tiff_lock.release()
 
 def nocache(view):
     @wraps(view)
@@ -360,6 +385,38 @@ def out_story(path):
     out_dir = os.path.dirname(G['out_yaml'])
     return send_file(os.path.join(out_dir, path))
 
+@app.route('/api/u32/<key>/<level>_<x>_<y>.png')
+@cross_origin()
+@nocache
+def u32_image(key, level, x, y):
+    """
+    Returns a 32-bit tile from given image mask
+    Args:
+        key: URL-escaped path to mask
+        level: Pyramid level
+        x: Tile coordinate x
+        y: Tile coordinate y
+
+    Returns: Tile image in png format
+
+    """
+    path = unquote(key)
+
+    # Open the input file on the first request only
+    if path not in G['masks']:
+        open_input_mask(path)
+
+    img_io = render_tile(G['masks'][path], int(level),
+                        int(x), int(y), 0, fmt='RGBA')
+    if img_io is None:
+
+        response = make_response('Not found', 404)
+        response.mimetype = "text/plain"
+        return response
+ 
+    return send_file(img_io, mimetype='image/png')
+
+
 @app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
 @nocache
@@ -380,8 +437,8 @@ def u16_image(channel, level, x, y):
     if G['opener'] is None:
         open_input_file(G['in_file'])
 
-    img_io = render_tile(G['opener'], len(G['channels']),
-                        int(level), int(x), int(y), int(channel))
+    img_io = render_tile(G['opener'], int(level),
+                         int(x), int(y), int(channel))
     if img_io is None:
 
         response = make_response('Not found', 404)
