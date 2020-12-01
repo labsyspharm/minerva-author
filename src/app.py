@@ -113,8 +113,9 @@ class Opener:
     def get_level_tiles(self, level, tile_size):
         if self.reader == 'tifffile':
 
-            ny = int(np.ceil(self.group[level].shape[1] / tile_size))
-            nx = int(np.ceil(self.group[level].shape[2] / tile_size))
+            # Negative indexing to support shape len 3 or len 2
+            ny = int(np.ceil(self.group[level].shape[-2] / tile_size))
+            nx = int(np.ceil(self.group[level].shape[-1] / tile_size))
             print((nx, ny))
             return (nx, ny)
         elif self.reader == 'openslide':
@@ -298,7 +299,8 @@ def reset_globals():
             'name': '',
             'text': ''
         },
-        'masks': {},
+        'mask_openers': {},
+        'masks': [],
         'groups': [],
         'waypoints': [],
         'channels': [],
@@ -313,7 +315,8 @@ def reset_globals():
     _yaml = {
         'Images': [],
         'Layout': {'Grid': [['i0']]},
-        'Groups': []
+        'Groups': [],
+        'Masks': []
     }
     return (_g, _yaml)
 
@@ -346,8 +349,8 @@ def open_input_file(path):
 def open_input_mask(path):
     global G
     tiff_lock.acquire()
-    if path not in G['masks']:
-        G['masks'][path] = Opener(path)
+    if path not in G['mask_openers']:
+        G['mask_openers'][path] = Opener(path)
     tiff_lock.release()
 
 def nocache(view):
@@ -403,10 +406,10 @@ def u32_image(key, level, x, y):
     path = unquote(key)
 
     # Open the input file on the first request only
-    if path not in G['masks']:
+    if path not in G['mask_openers']:
         open_input_mask(path)
 
-    img_io = render_tile(G['masks'][path], int(level),
+    img_io = render_tile(G['mask_openers'][path], int(level),
                         int(x), int(y), 0, fmt='RGBA')
     if img_io is None:
 
@@ -527,6 +530,7 @@ def api_save():
         G['sample_info'] = data['sample_info']
         G['waypoints'] = data['waypoints']
         G['groups'] = data['groups']
+        G['masks'] = data['masks']
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
 
@@ -571,6 +575,19 @@ def api_render():
     G['save_progress'] = 0
     G['save_progress_max'] = 0
 
+    def make_mask_yaml(d):
+        for mask in d:
+            channels = mask['channels']
+            raw_path = mask['path']
+            m_path = raw_path # TODO
+
+            yield {
+                'Path': m_path,
+                'Name': mask['label'],
+                'Colors': [c['color'] for c in channels],
+                'Channels': [c['label'] for c in channels]
+            }
+
     def make_yaml(d):
         for group in d:
             channels = group['channels']
@@ -601,8 +618,10 @@ def api_render():
     
     if request.method == 'POST':
         data = request.json['groups']
+        mask_data = request.json['masks']
         config_rows = list(make_rows(data))
         YAML['Groups'] = list(make_yaml(data))
+        YAML['Masks'] = list(make_mask_yaml(mask_data))
         YAML['Header'] = request.json['header']
         YAML['Rotation'] = request.json['rotation']
         sample_name = request.json['image']['description']
@@ -652,6 +671,7 @@ def api_import():
             'waypoints': G['waypoints'],
             'sample_info': G['sample_info'],
             'groups': G['groups'],
+            'masks': G['masks'],
             'channels': G['channels'],
             'tilesize': G['tilesize'],
             'maxLevel': G['maxLevel'],
@@ -690,6 +710,7 @@ def api_import():
 
             G['waypoints'] = saved['waypoints']
             G['groups'] = saved['groups']
+            G['masks'] = saved['masks']
             for group in saved['groups']:
                 for chan in group['channels']:
                     chanLabel[str(chan['id'])] = chan['label']
