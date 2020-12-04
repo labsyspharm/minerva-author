@@ -55,7 +55,11 @@ def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows,
 
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
-            old_rows = json.load(f)
+            try:
+                old_rows = json.load(f)
+            except json.decoder.JSONDecodeError as err:
+                print(err)
+                pass
 
     with open(config_path, 'w') as f:
         json.dump(config_rows, f)

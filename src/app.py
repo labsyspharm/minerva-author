@@ -30,9 +30,13 @@ from flask import request
 from flask import send_file 
 from flask import make_response
 from render_png import render_tile
+from render_png import colorize_mask
+from render_png import render_u32_tiles
 from render_jpg import render_color_tiles
 from render_jpg import composite_channel
-from storyexport import create_story_base, get_story_folders, deduplicate_data
+from render_jpg import _calculate_total_tiles
+from storyexport import create_story_base, get_story_folders
+from storyexport import deduplicate_data, deduplicate_masks
 from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
@@ -204,23 +208,7 @@ class Opener:
                 tile[:, :, 2] = tile_2
                 format = 'I;8'
             else:
-                tile_ = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
-                if fmt == 'I;8':
-                    tile = np.zeros((tile_.shape[0], tile_.shape[1], 4), dtype=np.uint8)
-                    rgba_dt=np.dtype((np.int32, {
-                        'f0':(np.uint8,0),
-                        'f1':(np.uint8,1),
-                        'f2':(np.uint8,2),
-                        'f3':(np.uint8,3)
-                    }))
-                    tile_=tile_.view(dtype=rgba_dt)
-                    tile[:, :, 0] = tile_['f0']
-                    tile[:, :, 1] = tile_['f1']
-                    tile[:, :, 2] = tile_['f2']
-                    tile[:, :, 3] = tile_['f3']
-                else:
-                    tile = tile_
-
+                tile = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
                 format = fmt if fmt else 'I;16'
 
             return Image.fromarray(tile, format)
@@ -230,7 +218,7 @@ class Opener:
             img = self.dz.get_tile(l, (tx, ty))
             return img
 
-    def save_tile(self, output_file, settings, tile_size, level, tx, ty):
+    def save_tile(self, output_file, settings, tile_size, level, tx, ty, is_mask=False):
         if self.reader == 'tifffile' and self.is_rgba('3 channel'):
 
             num_channels = self.get_shape()[0]
@@ -253,7 +241,18 @@ class Opener:
             img = Image.fromarray(tile, 'RGB')
             img.save(output_file, quality=85)
 
-        elif self.reader == 'tifffile':
+        elif self.reader == 'tifffile' and is_mask:
+            color = settings['Color'][0]
+            num_channels = self.get_shape()[0]
+            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+            target = np.zeros(tile.shape + (4,), np.uint8)
+            colorize_mask(
+                target, tile, colors.to_rgb(color)
+            )
+            img = Image.frombytes('RGBA', target.T.shape[1:], target.tobytes())
+            img.save(output_file, quality=85)
+
+        elif self.reader == 'tifffile' and not is_mask:
             for i, (marker, color, start, end) in enumerate(zip(
                     settings['Channel Number'], settings['Color'],
                     settings['Low'], settings['High']
@@ -309,8 +308,8 @@ def reset_globals():
         'tilesize': 1024,
         'height': 1024,
         'width': 1024,
-        'save_progress': 0,
-        'save_progress_max': 0
+        'save_progress': {},
+        'save_progress_max': {}
     }
     _yaml = {
         'Images': [],
@@ -488,6 +487,8 @@ def api_stories():
                 'Arrows': list(map(format_arrow, waypoint['arrows'])),
                 'Overlays': list(map(format_overlay, waypoint['overlays'])),
                 'Group': waypoint['group'],
+                'Masks': waypoint['masks'],
+                'ActiveMasks': waypoint['masks'],
                 'Zoom': waypoint['zoom'],
                 'Pan': waypoint['pan'],
             }
@@ -545,9 +546,14 @@ def api_save():
         return 'OK'
     
 
-def render_progress_callback(current, max):
-    G['save_progress'] = current
-    G['save_progress_max'] = max
+def render_progress_callback(current, maximum, key='default'):
+    G['save_progress'][key] = current
+    G['save_progress_max'][key] = maximum
+
+def create_progress_callback(maximum, key='default'):
+    def progress_callback(current):
+        render_progress_callback(current, maximum, key)
+    return progress_callback
 
 @app.route('/api/render/progress', methods=['GET'])
 @cross_origin()
@@ -559,8 +565,8 @@ def get_render_progress():
 
     """
     return jsonify({
-        "progress": G['save_progress'],
-        "max": G['save_progress_max']
+        "progress": sum(G['save_progress'].values()),
+        "max": sum(G['save_progress_max'].values())
     })
 
 @app.route('/api/render', methods=['POST'])
@@ -572,18 +578,18 @@ def api_render():
     Returns: OK on success
 
     """
-    G['save_progress'] = 0
-    G['save_progress_max'] = 0
+    G['save_progress'] = {}
+    G['save_progress_max'] = {}
 
-    def make_mask_yaml(d):
+    def make_mask_yaml(d, mask_dict):
         for mask in d:
             channels = mask['channels']
-            raw_path = mask['path']
-            m_path = raw_path # TODO
+            mask_label = mask['label']
+            mask_path = mask_dict[mask['path']]
 
             yield {
-                'Path': m_path,
-                'Name': mask['label'],
+                'Name': mask_label,
+                'Path': mask_path,
                 'Colors': [c['color'] for c in channels],
                 'Channels': [c['label'] for c in channels]
             }
@@ -619,18 +625,21 @@ def api_render():
     if request.method == 'POST':
         data = request.json['groups']
         mask_data = request.json['masks']
+        waypoint_data = request.json['waypoints']
+        mask_dict = deduplicate_masks(mask_data, '')
         config_rows = list(make_rows(data))
         YAML['Groups'] = list(make_yaml(data))
-        YAML['Masks'] = list(make_mask_yaml(mask_data))
+        YAML['Masks'] = list(make_mask_yaml(mask_data, mask_dict))
         YAML['Header'] = request.json['header']
         YAML['Rotation'] = request.json['rotation']
         sample_name = request.json['image']['description']
         YAML['Images'][0]['Description'] = sample_name
         YAML['Images'][0]['Path'] = 'images/' + G['out_name']
 
-        create_story_base(G['out_name'], request.json['waypoints'])
+        create_story_base(G['out_name'], waypoint_data, mask_data)
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
+        mask_full_dict = deduplicate_masks(mask_data, out_dir)
         G['out_yaml'] = out_yaml
 
         with open(G['out_yaml'], 'w') as wf:
@@ -638,7 +647,28 @@ def api_render():
             wf.write(json_text)
 
         render_color_tiles(G['opener'], G['out_dir'], 1024,
-                           len(G['channels']), config_rows, G['logger'], progress_callback=render_progress_callback)
+                           len(G['channels']), config_rows, G['logger'],
+                           progress_callback=render_progress_callback)
+
+        mask_args = []
+        for mask in mask_data:
+            mask_path = mask['path']
+            if mask_path not in G['mask_openers']:
+                open_input_mask(mask_path)
+            mask_opener = G['mask_openers'][mask_path]
+            num_levels = mask_opener.get_shape()[1]
+            mask_total = _calculate_total_tiles(mask_opener, 1024, num_levels, 1)
+            mask_args.append({
+                'opener': mask_opener,
+                'out_dir': mask_full_dict[mask_path],
+                'colors': ['#'+c['color'] for c in mask['channels']],
+                'progress': create_progress_callback(mask_total, mask_path) 
+            })
+
+        for m_args in mask_args:
+            render_u32_tiles(m_args['opener'], m_args['out_dir'],
+                            1024, m_args['colors'], G['logger'],
+                            progress_callback=m_args['progress'])
 
         return 'OK'
 

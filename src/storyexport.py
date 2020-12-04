@@ -1,16 +1,19 @@
 import os, sys
 from distutils import file_util
 
-def deduplicate_path(data_path, data_dict, data_dir):
+def deduplicate_path(data_path, data_dict, data_dir, no_ext=False):
     """
     Return a local path for given data path
     Args:
         data_path: the full path of the file to copy
         data_dict: the existing mapping of local paths
         data_dir: the full path of the destination directory
+        no_ext: replace dots in local path if true
     """
     n_dups = 0
     basename = os.path.basename(data_path)
+    if no_ext:
+        basename = basename.replace('.','_')
     local_path = os.path.join(data_dir, basename)
     while local_path in data_dict.values():
         root, ext = os.path.splitext(basename) 
@@ -38,13 +41,29 @@ def deduplicate_data(waypoints, data_dir):
 
     return data_dict
 
-def create_story_base(title, waypoints):
+def deduplicate_masks(masks, data_dir):
+    """
+    Map filesystem paths to local data paths
+    Args:
+        masks: list of dicts containing mask label and path
+        data_dir: the full path of the destination directory
+    """
+    data_dict = dict()
+    for m in masks:
+        for data_path in [m['path'] for m in masks]:
+            data_dict[data_path] = deduplicate_path(data_path, data_dict, data_dir, no_ext=True)
+
+    return data_dict
+
+def create_story_base(title, waypoints, masks):
     """
     Creates a new minerva-story instance under subfolder named title. The subfolder will be created.
     Args:
         title: Story title, the subfolder will be named
+        waypoints: List of waypoints with visData and Masks
+        masks: List of masks with names and paths
     """
-    get_story_folders(title, True)
+    out_dir = get_story_folders(title, True)[0]
 
     current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
     export_dir = os.path.join(current_dir, title)
@@ -57,13 +76,16 @@ def create_story_base(title, waypoints):
         story_dir = os.path.join(current_dir, '..', 'minerva-story')
 
     data_dir = os.path.join(export_dir, 'data')
-    images_dir = os.path.join(export_dir, 'images')
     os.makedirs(data_dir, exist_ok=True)
-    os.makedirs(images_dir, exist_ok=True)
+    os.makedirs(out_dir, exist_ok=True)
 
     file_util.copy_file(os.path.join(story_dir, 'index.html'), export_dir)
 
     data_dict = deduplicate_data(waypoints, data_dir)
+    mask_dict = deduplicate_masks(masks, out_dir)
+
+    for mask_path in mask_dict.values():
+        os.makedirs(mask_path, exist_ok=True)
 
     for waypoint in waypoints:
         for vis in ['VisScatterplot', 'VisCanvasScatterplot', 'VisMatrix']:
