@@ -1,19 +1,22 @@
+import re
 import os, sys
 from distutils import file_util
 
-def deduplicate_path(data_path, data_dict, data_dir, no_ext=False):
+def only_alphanumeric(s, empty='0'):
+    replaced = re.sub('[^0-9a-zA-Z]+', '', s)
+    return empty if replaced == '' else replaced
+
+def deduplicate_path(data_path, data_name, data_dict, data_dir):
     """
     Return a local path for given data path
     Args:
         data_path: the full path of the file to copy
+        data_name: the basename of the target file
         data_dict: the existing mapping of local paths
         data_dir: the full path of the destination directory
-        no_ext: replace dots in local path if true
     """
     n_dups = 0
-    basename = os.path.basename(data_path)
-    if no_ext:
-        basename = basename.replace('.','_')
+    basename = data_name
     local_path = os.path.join(data_dir, basename)
     while local_path in data_dict.values():
         root, ext = os.path.splitext(basename) 
@@ -34,26 +37,38 @@ def deduplicate_data(waypoints, data_dir):
         for vis in ['VisScatterplot', 'VisCanvasScatterplot', 'VisMatrix']:
             if vis in waypoint:
                 data_path = waypoint[vis]['data']
-                data_dict[data_path] = deduplicate_path(data_path, data_dict, data_dir)
+                data_name = os.path.basename(data_path)
+                data_dict[data_path] = deduplicate_path(data_path, data_name, data_dict, data_dir)
 
         if 'VisBarChart' in waypoint:
-            data_dict[data_path] = deduplicate_path(waypoint['VisBarChart'], data_dict, data_dir)
+            data_name = waypoint['VisBarChart']
+            data_name = os.path.basename(data_path)
+            data_dict[data_path] = deduplicate_path(data_path, data_name, data_dict, data_dir)
 
     return data_dict
 
-def deduplicate_masks(masks, data_dir):
+def deduplicate_dicts(dicts, data_dir, in_key='path', out_key='label'):
     """
     Map filesystem paths to local data paths
     Args:
-        masks: list of dicts containing mask label and path
+        dicts: list of dicts containing input key and output key 
         data_dir: the full path of the destination directory
+        in_key: used for key of output dictionary
+        out_key: used for values of output dictionary
     """
     data_dict = dict()
-    for m in masks:
-        for data_path in [m['path'] for m in masks]:
-            data_dict[data_path] = deduplicate_path(data_path, data_dict, data_dir, no_ext=True)
+    for d in dicts:
+        data_path = d[in_key]
+        data_name = only_alphanumeric(d[out_key]) 
+        data_dict[data_path] = deduplicate_path(data_path, data_name, data_dict, data_dir)
 
     return data_dict
+
+def dedup_path_to_label(dicts, data_dir):
+    return deduplicate_dicts(dicts, data_dir, 'path', 'label')
+
+def dedup_label_to_label(dicts, data_dir):
+    return deduplicate_dicts(dicts, data_dir, 'label', 'label')
 
 def create_story_base(title, waypoints, masks):
     """
@@ -81,20 +96,14 @@ def create_story_base(title, waypoints, masks):
 
     file_util.copy_file(os.path.join(story_dir, 'index.html'), export_dir)
 
-    data_dict = deduplicate_data(waypoints, data_dir)
-    mask_dict = deduplicate_masks(masks, out_dir)
+    vis_path_dict = deduplicate_data(waypoints, data_dir)
+    mask_path_dict = dedup_path_to_label(masks, out_dir)
 
-    for mask_path in mask_dict.values():
+    for mask_path in mask_path_dict.values():
         os.makedirs(mask_path, exist_ok=True)
 
-    for waypoint in waypoints:
-        for vis in ['VisScatterplot', 'VisCanvasScatterplot', 'VisMatrix']:
-            if vis in waypoint:
-                data_path = waypoint[vis]['data']
-                file_util.copy_file(data_path, data_dict[data_path])
-
-        if 'VisBarChart' in waypoint:
-            file_util.copy_file(data_path, data_dict[waypoint['VisBarChart']])
+    for in_path, out_path in vis_path_dict.items():
+        file_util.copy_file(in_path, out_path)
 
 def get_story_folders(title, create=False):
     """
@@ -105,15 +114,14 @@ def get_story_folders(title, create=False):
 
     Returns: Tuple of images dir, json config dir, json save dir, log dir
     """
-    out_name = title.replace(' ', '_')
     folder = os.path.dirname(os.path.abspath(sys.argv[0]))
-    images_folder = os.path.join(folder, out_name, 'images')
-    out_dir = os.path.join(images_folder, out_name)
+    images_folder = os.path.join(folder, title, 'images')
+    out_dir = os.path.join(images_folder, title)
 
-    out_json_config = os.path.join(folder, out_name, 'exhibit.json')
+    out_json_config = os.path.join(folder, title, 'exhibit.json')
 
-    out_json_save = os.path.join(folder, out_name + '.json')
-    out_log = os.path.join(folder, out_name + '.log')
+    out_json_save = os.path.join(folder, title + '.json')
+    out_log = os.path.join(folder, title + '.log')
 
     if create:
         os.makedirs(images_folder, exist_ok=True)

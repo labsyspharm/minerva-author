@@ -36,7 +36,8 @@ from render_jpg import render_color_tiles
 from render_jpg import composite_channel
 from render_jpg import _calculate_total_tiles
 from storyexport import create_story_base, get_story_folders
-from storyexport import deduplicate_data, deduplicate_masks
+from storyexport import deduplicate_data, only_alphanumeric
+from storyexport import dedup_path_to_label, dedup_label_to_label
 from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
@@ -456,65 +457,6 @@ def out_image(path):
     image_path = os.path.join(G['out_dir'], path)
     return send_file(image_path, mimetype='image/jpeg')
 
-@app.route('/api/stories', methods=['POST'])
-@cross_origin()
-@nocache
-def api_stories():
-
-    def format_arrow(a):
-        return {
-            'Text': a['text'],
-            'HideArrow': a['hide'],
-            'Point': a['position'],
-            'Angle': 60 if a['angle'] == '' else a['angle']
-        }
-
-    def format_overlay(o):
-        return {
-            'x': o[0],
-            'y': o[1],
-            'width': o[2],
-            'height': o[3]
-        }
-
-    def make_waypoints(d):
-
-        data_dict = deduplicate_data(d, 'data')
-        for waypoint in d:
-            wp = {
-                'Name': waypoint['name'],
-                'Description': waypoint['text'],
-                'Arrows': list(map(format_arrow, waypoint['arrows'])),
-                'Overlays': list(map(format_overlay, waypoint['overlays'])),
-                'Group': waypoint['group'],
-                'Masks': waypoint['masks'],
-                'ActiveMasks': waypoint['masks'],
-                'Zoom': waypoint['zoom'],
-                'Pan': waypoint['pan'],
-            }
-            for vis in ['VisScatterplot', 'VisCanvasScatterplot', 'VisMatrix']:
-                if vis in waypoint:
-                    wp[vis] = waypoint[vis]
-                    wp[vis]['data'] = data_dict[wp[vis]['data']]
-
-            if 'VisBarChart' in waypoint:
-                wp['VisBarChart'] = data_dict[waypoint['VisBarChart']]
-
-            yield wp
-
-    def make_stories(d):
-        for story in d:
-            yield {
-                'Name': story['name'],
-                'Description': story['text'],
-                'Waypoints': list(make_waypoints(story['waypoints']))
-            }
-
-    if request.method == 'POST':
-        data = request.json['stories']
-        YAML['Stories'] = list(make_stories(data))
-        return 'OK'
-
 @app.route('/api/save', methods=['POST'])
 @cross_origin()
 @nocache
@@ -569,6 +511,101 @@ def get_render_progress():
         "max": sum(G['save_progress_max'].values())
     })
 
+def format_arrow(a):
+    return {
+        'Text': a['text'],
+        'HideArrow': a['hide'],
+        'Point': a['position'],
+        'Angle': 60 if a['angle'] == '' else a['angle']
+    }
+
+def format_overlay(o):
+    return {
+        'x': o[0],
+        'y': o[1],
+        'width': o[2],
+        'height': o[3]
+    }
+
+def make_waypoints(d, group_dict, mask_dict):
+
+    vis_path_dict = deduplicate_data(d, 'data')
+    for waypoint in d:
+        wp_masks = [mask_dict[m] for m in waypoint['masks']]
+        wp = {
+            'Name': waypoint['name'],
+            'Description': waypoint['text'],
+            'Arrows': list(map(format_arrow, waypoint['arrows'])),
+            'Overlays': list(map(format_overlay, waypoint['overlays'])),
+            'Group': group_dict[waypoint['group']],
+            'Masks': wp_masks,
+            'ActiveMasks': wp_masks,
+            'Zoom': waypoint['zoom'],
+            'Pan': waypoint['pan'],
+        }
+        for vis in ['VisScatterplot', 'VisCanvasScatterplot', 'VisMatrix']:
+            if vis in waypoint:
+                wp[vis] = waypoint[vis]
+                wp[vis]['data'] = vis_path_dict[wp[vis]['data']]
+
+        if 'VisBarChart' in waypoint:
+            wp['VisBarChart'] = vis_path_dict[waypoint['VisBarChart']]
+
+        yield wp
+
+def make_stories(d, group_dict, mask_dict):
+    return [{
+        'Name': '',
+        'Description': '',
+        'Waypoints': list(make_waypoints(d, group_dict, mask_dict))
+    }]
+
+def make_mask_yaml(d, mask_path_dict):
+    for mask in d:
+        channels = [{'color': c['color'],
+                     'label': only_alphanumeric(c['label'])}
+                   for c in mask['channels']]
+        mask_label = mask['label']
+        mask_path = mask_path_dict[mask['path']]
+
+        yield {
+            'Name': mask_label,
+            'Path': mask_path,
+            'Colors': [c['color'] for c in channels],
+            'Channels': [c['label'] for c in channels]
+        }
+
+def make_yaml(d, group_dict):
+    for group in d:
+        group_label = group_dict[group['label']]
+        channels = [{'id': c['id'], 'color': c['color'],
+                     'label': only_alphanumeric(c['label'])}
+                   for c in group['channels']]
+        c_path = '--'.join(
+            str(c['id']) + '__' + c['label']
+            for c in channels
+        )
+        g_path = group_label + '_' + c_path
+
+        yield {
+            'Path': g_path,
+            'Name': group_label,
+            'Colors': [c['color'] for c in channels],
+            'Channels': [c['label'] for c in channels]
+        }
+
+def make_rows(d, group_dict):
+    for group in d:
+        for channel in group['channels']:
+            yield {
+                'Group': group_dict[group['label']],
+                'Marker Name': only_alphanumeric(channel['label']),
+                'Channel Number': str(channel['id']),
+                'Low': int(65535 * channel['min']),
+                'High': int(65535 * channel['max']),
+                'Color': '#' + channel['color'],
+            }
+
 @app.route('/api/render', methods=['POST'])
 @cross_origin()
 @nocache
@@ -581,55 +618,17 @@ def api_render():
     G['save_progress'] = {}
     G['save_progress_max'] = {}
 
-    def make_mask_yaml(d, mask_dict):
-        for mask in d:
-            channels = mask['channels']
-            mask_label = mask['label']
-            mask_path = mask_dict[mask['path']]
-
-            yield {
-                'Name': mask_label,
-                'Path': mask_path,
-                'Colors': [c['color'] for c in channels],
-                'Channels': [c['label'] for c in channels]
-            }
-
-    def make_yaml(d):
-        for group in d:
-            channels = group['channels']
-            c_path = '--'.join(
-                str(channels[i]['id']) + '__' + channels[i]['label']
-                for i in range(len(channels))
-            )
-            g_path = group['label'].replace(' ', '-') + '_' + c_path
-
-            yield {
-                'Path': g_path,
-                'Name': group['label'],
-                'Colors': [c['color'] for c in channels],
-                'Channels': [c['label'] for c in channels]
-            }
-
-    def make_rows(d):
-        for group in d:
-            for channel in group['channels']:
-                yield {
-                    'Group': group['label'],
-                    'Marker Name': channel['label'],
-                    'Channel Number': str(channel['id']),
-                    'Low': int(65535 * channel['min']),
-                    'High': int(65535 * channel['max']),
-                    'Color': '#' + channel['color'],
-                }
-    
     if request.method == 'POST':
         data = request.json['groups']
         mask_data = request.json['masks']
         waypoint_data = request.json['waypoints']
-        mask_dict = deduplicate_masks(mask_data, '')
-        config_rows = list(make_rows(data))
-        YAML['Groups'] = list(make_yaml(data))
-        YAML['Masks'] = list(make_mask_yaml(mask_data, mask_dict))
+        group_dict = dedup_label_to_label(data, '')
+        mask_dict = dedup_label_to_label(mask_data, '')
+        mask_path_dict = dedup_path_to_label(mask_data, '')
+        config_rows = list(make_rows(data, group_dict))
+        YAML['Groups'] = list(make_yaml(data, group_dict))
+        YAML['Stories'] = make_stories(waypoint_data, group_dict, mask_dict)
+        YAML['Masks'] = list(make_mask_yaml(mask_data, mask_path_dict))
         YAML['Header'] = request.json['header']
         YAML['Rotation'] = request.json['rotation']
         sample_name = request.json['image']['description']
@@ -639,7 +638,7 @@ def api_render():
         create_story_base(G['out_name'], waypoint_data, mask_data)
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
-        mask_full_dict = deduplicate_masks(mask_data, out_dir)
+        mask_full_dict = dedup_path_to_label(mask_data, out_dir)
         G['out_yaml'] = out_yaml
 
         with open(G['out_yaml'], 'w') as wf:
@@ -747,7 +746,7 @@ def api_import():
         else:
             csv_file = pathlib.Path(data['csvpath'])
 
-        out_name = data['dataset']
+        out_name = only_alphanumeric(data['dataset'], empty='out')
         if out_name == '':
             out_name = 'out'
 
@@ -813,7 +812,7 @@ def api_import():
             G['out_yaml'] = str(out_yaml)
             G['out_dat'] = str(out_dat)
             G['out_dir'] = str(out_dir)
-            G['out_name'] = out_name
+            G['out_name'] = only_alphanumeric(out_name, empty='out')
             G['in_file'] = str(input_file)
             G['csv_file'] = str(csv_file)
             G['channels'] = labels
