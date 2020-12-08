@@ -312,13 +312,7 @@ def reset_globals():
         'save_progress': {},
         'save_progress_max': {}
     }
-    _yaml = {
-        'Images': [],
-        'Layout': {'Grid': [['i0']]},
-        'Groups': [],
-        'Masks': []
-    }
-    return (_g, _yaml)
+    return _g
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -330,7 +324,7 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
-G, YAML = reset_globals()
+G = reset_globals()
 tiff_lock = multiprocessing.Lock()
 app = Flask(__name__,
             static_folder=resource_path('static'),
@@ -371,9 +365,8 @@ def root():
     Serves the minerva-author web UI
     """
     global G
-    global YAML
     close_tiff()
-    G, YAML = reset_globals()
+    G = reset_globals()
     return app.send_static_file('index.html')
 
 @app.route('/story/', defaults={'path': 'index.html'})
@@ -606,6 +599,35 @@ def make_rows(d, group_dict):
                 'Color': '#' + channel['color'],
             }
 
+def make_exhibit_config(opener, out_name, json):
+
+    data = json['groups']
+    mask_data = json['masks']
+    waypoint_data = json['waypoints']
+    group_dict = dedup_label_to_label(data, '')
+    mask_dict = dedup_label_to_label(mask_data, '')
+    mask_path_dict = dedup_path_to_label(mask_data, '')
+    (num_channels, num_levels, width, height) = opener.get_shape()
+
+    _config = {
+        'Images': [{
+            'Name': 'i0',
+            'Description': json['image']['description'],
+            'Path': 'images/' + out_name,
+            'Width': width,
+            'Height': height,
+            'MaxLevel': num_levels - 1
+        }],
+        'Header': json['header'],
+        'Rotation': json['rotation'],
+        'Layout': {'Grid': [['i0']]},
+        'Stories': make_stories(waypoint_data, group_dict, mask_dict),
+        'Masks': list(make_mask_yaml(mask_data, mask_path_dict)),
+        'Groups': list(make_yaml(data, group_dict))
+    }
+    return _config
+
+
 @app.route('/api/render', methods=['POST'])
 @cross_origin()
 @nocache
@@ -623,18 +645,8 @@ def api_render():
         mask_data = request.json['masks']
         waypoint_data = request.json['waypoints']
         group_dict = dedup_label_to_label(data, '')
-        mask_dict = dedup_label_to_label(mask_data, '')
-        mask_path_dict = dedup_path_to_label(mask_data, '')
         config_rows = list(make_rows(data, group_dict))
-        YAML['Groups'] = list(make_yaml(data, group_dict))
-        YAML['Stories'] = make_stories(waypoint_data, group_dict, mask_dict)
-        YAML['Masks'] = list(make_mask_yaml(mask_data, mask_path_dict))
-        YAML['Header'] = request.json['header']
-        YAML['Rotation'] = request.json['rotation']
-        sample_name = request.json['image']['description']
-        YAML['Images'][0]['Description'] = sample_name
-        YAML['Images'][0]['Path'] = 'images/' + G['out_name']
-
+        exhibit_config = make_exhibit_config(G['opener'], G['out_name'], request.json)
         create_story_base(G['out_name'], waypoint_data, mask_data)
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
@@ -642,7 +654,7 @@ def api_render():
         G['out_yaml'] = out_yaml
 
         with open(G['out_yaml'], 'w') as wf:
-            json_text = json.dumps(YAML, ensure_ascii=False)
+            json_text = json.dumps(exhibit_config, ensure_ascii=False)
             wf.write(json_text)
 
         render_color_tiles(G['opener'], G['out_dir'], 1024,
@@ -758,18 +770,9 @@ def api_import():
             if G['opener'] is None:
                 open_input_file(str(input_file))
 
-
             (num_channels, num_levels, width, height) = G['opener'].get_shape()
             tilesize = G['opener'].tilesize
 
-            YAML['Images'] = [{
-                'Name': 'i0',
-                'Description': '',
-                'Path': 'http://127.0.0.1:2020/api/out',
-                'Width': width,
-                'Height': height,
-                'MaxLevel': num_levels - 1
-            }]
             G['maxLevel'] = num_levels - 1
             G['tilesize'] = tilesize
             G['height'] = height

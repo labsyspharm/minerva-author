@@ -1,5 +1,6 @@
 import pytest
 import app
+import json
 import numpy as np
 from skimage import io
 from io import BytesIO
@@ -10,6 +11,29 @@ def client():
     importlib.reload(app)
     with app.app.test_client() as client:
         yield client
+
+def test_make_exhibit_config():
+
+    ome_tif_in = '../testimages/2048x2048_ome6_tiled.ome.tif'
+    exhibit_in = '../testimages/exhibit0_in.json'
+    exhibit_out = '../testimages/exhibit0_out.json'
+    exhibit_name = 'test'
+
+    with open(exhibit_in) as f:
+        data_in = json.load(f)
+    with open(exhibit_out) as f:
+        data_out = json.load(f)
+
+    opener = app.Opener(ome_tif_in)
+
+    exhibit_config = app.make_exhibit_config(opener, exhibit_name, data_in)
+    assert exhibit_config['Groups'] == data_out['Groups']
+    assert exhibit_config['Header'] == data_out['Header']
+    assert exhibit_config['Images'] == data_out['Images']
+    assert exhibit_config['Layout'] == data_out['Layout']
+    assert exhibit_config['Rotation'] == data_out['Rotation']
+    assert exhibit_config['Stories'] == data_out['Stories']
+    assert exhibit_config['Masks'] == data_out['Masks']
 
 def test_import_ome(client):
     form_data = {
