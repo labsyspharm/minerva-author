@@ -2,6 +2,9 @@ from imagecodecs import _zlib # Needed for pyinstaller
 from imagecodecs import _imcd # Needed for pyinstaller
 from imagecodecs import _jpeg8 # Needed for pyinstaller
 from imagecodecs import _jpeg2k # Needed for pyinstaller
+from numcodecs import compat_ext # Needed for pyinstaller
+from numcodecs import blosc # Needed for pyinstaller
+from urllib.parse import unquote
 import pathlib
 import re
 import string

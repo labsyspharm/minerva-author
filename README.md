@@ -14,7 +14,7 @@ git clone git@github.com:labsyspharm/minerva-author.git
 cd minerva-author
 git submodule update --init --recursive
 conda config --add channels conda-forge
-conda create --name author python=3.7 nomkl
+conda create --name author python=3.8 nomkl
 conda activate author
 pip install numpy
 pip install -r requirements.txt
@@ -48,7 +48,7 @@ pytest
 
 To package the application as a standalone executable, run script:
 ```
-package_mac.sh
+bash package_mac.sh
 ```
 
 #### Windows (powershell)
