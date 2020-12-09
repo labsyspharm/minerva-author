@@ -558,11 +558,10 @@ def make_mask_yaml(d, mask_path_dict):
         channels = [{'color': c['color'],
                      'label': only_alphanumeric(c['label'])}
                    for c in mask['channels']]
-        mask_label = mask['label']
         mask_path = mask_path_dict[mask['path']]
 
         yield {
-            'Name': mask_label,
+            'Name': mask_path,
             'Path': mask_path,
             'Colors': [c['color'] for c in channels],
             'Channels': [c['label'] for c in channels]

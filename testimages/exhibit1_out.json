@@ -1,0 +1,83 @@
+{
+    "Groups": [
+        {
+            "Channels": [
+                "0",
+                "0"
+            ],
+            "Colors": [
+                "ff7f7f",
+                "ff7f00"
+            ],
+            "Name": "group",
+            "Path": "group_0__0--1__0"
+        }
+    ],
+    "Header": "",
+    "Images": [
+        {
+            "Description": "",
+            "Height": 2048,
+            "MaxLevel": 1,
+            "Name": "i0",
+            "Path": "images/test",
+            "Width": 2048
+        }
+    ],
+    "Layout": {
+        "Grid": [
+            [
+                "i0"
+            ]
+        ]
+    },
+    "Masks": [
+        {
+            "Channels": [
+                "test"
+            ],
+            "Colors": [
+                "ff0000"
+            ],
+            "Name": "0",
+            "Path": "0"
+        },
+        {
+            "Channels": [
+                "2"
+            ],
+            "Colors": [
+                "0000ff"
+            ],
+            "Name": "0_0",
+            "Path": "0_0"
+        }
+    ],
+    "Rotation": 0,
+    "Stories": [
+        {
+            "Description": "",
+            "Name": "",
+            "Waypoints": [
+                {
+                    "ActiveMasks": [
+                        "0_0"
+                    ],
+                    "Arrows": [],
+                    "Description": "description",
+                    "Group": "group",
+                    "Masks": [
+                        "0_0"
+                    ],
+                    "Name": "name",
+                    "Overlays": [],
+                    "Pan": [
+                        0.8851152525747915,
+                        0.5
+                    ],
+                    "Zoom": 0.5541666666666667
+                }
+            ]
+        }
+    ]
+}
