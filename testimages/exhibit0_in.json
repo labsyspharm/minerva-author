@@ -29,21 +29,21 @@
             "channels": [
                 {
                     "color": "ff0000",
-                    "label": "test"
+                    "label": "test 1 channel"
                 }
             ],
-            "label": "test",
+            "label": "test 1",
             "path": "./test.ome.tif"
         },
-        {
+      {
             "channels": [
                 {
                     "color": "0000ff",
-                    "label": "2"
+                    "label": "test 2 channel"
                 }
             ],
-            "label": "2",
-            "path": "./test copy.ome.tif"
+            "label": "test 2",
+            "path": "./test.ome.tif"
         }
     ],
     "rotation": 0,
@@ -52,7 +52,7 @@
             "arrows": [],
             "group": "group",
             "masks": [
-                "test"
+                0
             ],
             "name": "name",
             "overlays": [],

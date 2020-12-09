@@ -2,8 +2,8 @@
     "Groups": [
         {
             "Channels": [
-                "0",
-                "0"
+                "../",
+                "../"
             ],
             "Colors": [
                 "ff7f7f",
@@ -49,8 +49,8 @@
             "Colors": [
                 "0000ff"
             ],
-            "Name": "0_0",
-            "Path": "0_0"
+            "Name": "0 0",
+            "Path": "0-0"
         }
     ],
     "Rotation": 0,
@@ -61,13 +61,13 @@
             "Waypoints": [
                 {
                     "ActiveMasks": [
-                        "0_0"
+                        "0 0"
                     ],
                     "Arrows": [],
                     "Description": "description",
                     "Group": "group",
                     "Masks": [
-                        "0_0"
+                        "0 0"
                     ],
                     "Name": "name",
                     "Overlays": [],

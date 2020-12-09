@@ -38,8 +38,8 @@ from render_jpg import render_color_tiles
 from render_jpg import composite_channel
 from render_jpg import _calculate_total_tiles
 from storyexport import create_story_base, get_story_folders
-from storyexport import deduplicate_data, only_alphanumeric
-from storyexport import dedup_path_to_label, dedup_label_to_label
+from storyexport import deduplicate_data, label_to_dir, dir_to_label
+from storyexport import dedup_index_to_label, dedup_label_to_label
 from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
@@ -526,15 +526,15 @@ def make_waypoints(d, group_dict, mask_dict):
 
     vis_path_dict = deduplicate_data(d, 'data')
     for waypoint in d:
-        wp_masks = [mask_dict[m] for m in waypoint['masks']]
+        wp_masks = [mask_dict[i] for i in waypoint['masks'] if i in mask_dict]
         wp = {
             'Name': waypoint['name'],
             'Description': waypoint['text'],
             'Arrows': list(map(format_arrow, waypoint['arrows'])),
             'Overlays': list(map(format_overlay, waypoint['overlays'])),
-            'Group': group_dict[waypoint['group']],
-            'Masks': wp_masks,
-            'ActiveMasks': wp_masks,
+            'Group': dir_to_label(group_dict[waypoint['group']]),
+            'Masks': list(map(dir_to_label, wp_masks)),
+            'ActiveMasks': list(map(dir_to_label, wp_masks)),
             'Zoom': waypoint['zoom'],
             'Pan': waypoint['pan'],
         }
@@ -555,50 +555,49 @@ def make_stories(d, group_dict, mask_dict):
         'Waypoints': list(make_waypoints(d, group_dict, mask_dict))
     }]
 
-def make_mask_yaml(d, mask_path_dict):
-    for mask in d:
-        channels = [{'color': c['color'],
-                     'label': only_alphanumeric(c['label'])}
-                   for c in mask['channels']]
-        mask_path = mask_path_dict[mask['path']]
+def make_mask_yaml(d, mask_dict):
+    for (i,mask) in enumerate(d):
+        mask_path = mask_dict[i]
 
         yield {
-            'Name': mask_path,
             'Path': mask_path,
-            'Colors': [c['color'] for c in channels],
-            'Channels': [c['label'] for c in channels]
+            'Name': dir_to_label(mask_path),
+            'Colors': [c['color'] for c in mask['channels']],
+            'Channels': [c['label'] for c in mask['channels']]
         }
+
+def make_group_path(group_label, group_channels):
+    c_path = '--'.join(
+        str(c['id']) + '__' + label_to_dir(c['label'])
+        for c in group_channels
+    )
+    return group_label + '_' + c_path
+
 
 def make_yaml(d, group_dict):
     for group in d:
         group_label = group_dict[group['label']]
-        channels = [{'id': c['id'], 'color': c['color'],
-                     'label': only_alphanumeric(c['label'])}
-                   for c in group['channels']]
-        c_path = '--'.join(
-            str(c['id']) + '__' + c['label']
-            for c in channels
-        )
-        g_path = group_label + '_' + c_path
+        g_path = make_group_path(group_label, group['channels'])
 
         yield {
             'Path': g_path,
-            'Name': group_label,
-            'Colors': [c['color'] for c in channels],
-            'Channels': [c['label'] for c in channels]
+            'Name': dir_to_label(group_label),
+            'Colors': [c['color'] for c in group['channels']],
+            'Channels': [c['label'] for c in group['channels']]
         }
 
 def make_rows(d, group_dict):
     for group in d:
-        for channel in group['channels']:
-            yield {
-                'Group': group_dict[group['label']],
-                'Marker Name': only_alphanumeric(channel['label']),
-                'Channel Number': str(channel['id']),
-                'Low': int(65535 * channel['min']),
-                'High': int(65535 * channel['max']),
-                'Color': '#' + channel['color'],
-            }
+        channels = group['channels']
+        group_label = group_dict[group['label']]
+        group_path = make_group_path(group_label, channels)
+        yield {
+            'Group Path': group_path, 
+            'Channel Number': [str(c['id']) for c in channels],
+            'Low': [int(65535 * channel['min']) for c in channels],
+            'High': [int(65535 * channel['max']) for c in channels],
+            'Color': ['#' + channel['color'] for c in channels]
+        }
 
 def make_exhibit_config(opener, out_name, json):
 
@@ -606,8 +605,7 @@ def make_exhibit_config(opener, out_name, json):
     mask_data = json['masks']
     waypoint_data = json['waypoints']
     group_dict = dedup_label_to_label(data, '')
-    mask_dict = dedup_label_to_label(mask_data, '')
-    mask_path_dict = dedup_path_to_label(mask_data, '')
+    mask_dict = dedup_index_to_label(mask_data, '')
     (num_channels, num_levels, width, height) = opener.get_shape()
 
     _config = {
@@ -623,7 +621,7 @@ def make_exhibit_config(opener, out_name, json):
         'Rotation': json['rotation'],
         'Layout': {'Grid': [['i0']]},
         'Stories': make_stories(waypoint_data, group_dict, mask_dict),
-        'Masks': list(make_mask_yaml(mask_data, mask_path_dict)),
+        'Masks': list(make_mask_yaml(mask_data, mask_dict)),
         'Groups': list(make_yaml(data, group_dict))
     }
     return _config
@@ -651,7 +649,7 @@ def api_render():
         create_story_base(G['out_name'], waypoint_data, mask_data)
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
-        mask_full_dict = dedup_path_to_label(mask_data, out_dir)
+        mask_dict_full = dedup_index_to_label(mask_data, out_dir)
         G['out_yaml'] = out_yaml
 
         with open(G['out_yaml'], 'w') as wf:
@@ -663,7 +661,7 @@ def api_render():
                            progress_callback=render_progress_callback)
 
         mask_args = []
-        for mask in mask_data:
+        for (i,mask) in enumerate(mask_data):
             mask_path = mask['path']
             if mask_path not in G['mask_openers']:
                 open_input_mask(mask_path)
@@ -672,7 +670,7 @@ def api_render():
             mask_total = _calculate_total_tiles(mask_opener, 1024, num_levels, 1)
             mask_args.append({
                 'opener': mask_opener,
-                'out_dir': mask_full_dict[mask_path],
+                'out_dir': mask_dict_full[mask_path],
                 'colors': ['#'+c['color'] for c in mask['channels']],
                 'progress': create_progress_callback(mask_total, mask_path) 
             })
@@ -759,7 +757,7 @@ def api_import():
         else:
             csv_file = pathlib.Path(data['csvpath'])
 
-        out_name = only_alphanumeric(data['dataset'], empty='out')
+        out_name = label_to_dir(data['dataset'], empty='out')
         if out_name == '':
             out_name = 'out'
 
@@ -816,7 +814,7 @@ def api_import():
             G['out_yaml'] = str(out_yaml)
             G['out_dat'] = str(out_dat)
             G['out_dir'] = str(out_dir)
-            G['out_name'] = only_alphanumeric(out_name, empty='out')
+            G['out_name'] = label_to_dir(out_name, empty='out')
             G['in_file'] = str(input_file)
             G['csv_file'] = str(csv_file)
             G['channels'] = labels

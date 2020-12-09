@@ -73,6 +73,7 @@ def colorize_mask(target, image, color):
 def render_u32_tiles(opener, output_dir, tile_size, colors, logger, progress_callback=None):
     EXT = 'png'
 
+    settings = {'Color': colors, 'Source': str(opener.path)}
     print('Processing:', str(opener.path))
 
     output_path = pathlib.Path(output_dir)
@@ -81,17 +82,17 @@ def render_u32_tiles(opener, output_dir, tile_size, colors, logger, progress_cal
         output_path.mkdir(parents=True)
 
     config_path = output_path / 'config.json'
-    old_colors = []
+    old_settings = {}
 
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
             try:
-                old_colors = json.load(f)
+                old_settings = json.load(f)
             except json.decoder.JSONDecodeError as err:
                 print(err)
 
     with open(config_path, 'w') as f:
-        json.dump(colors, f)
+        json.dump(settings, f)
 
     num_levels = opener.get_shape()[1]
 
@@ -109,10 +110,9 @@ def render_u32_tiles(opener, output_dir, tile_size, colors, logger, progress_cal
 
             filename = '{}_{}_{}.{}'.format(level, tx, ty, EXT)
             output_file = str(output_path / filename)
-            settings = {'Color': colors}
 
             # Only save file if change in config rows
-            if not (os.path.exists(output_file) and colors == old_colors):
+            if not (os.path.exists(output_file) and settings == old_settings):
                 try:
                     opener.save_tile(output_file, settings, tile_size, level, tx, ty, is_mask=True)
                 except AttributeError as e:

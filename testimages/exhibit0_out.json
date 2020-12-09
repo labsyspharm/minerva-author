@@ -34,23 +34,23 @@
     "Masks": [
         {
             "Channels": [
-                "test"
+                "test 1 channel"
             ],
             "Colors": [
                 "ff0000"
             ],
-            "Name": "test",
-            "Path": "test"
+            "Name": "test 1",
+            "Path": "test-1"
         },
         {
             "Channels": [
-                "2"
+                "test 2 channel"
             ],
             "Colors": [
                 "0000ff"
             ],
-            "Name": "2",
-            "Path": "2"
+            "Name": "test 2",
+            "Path": "test-2"
         }
     ],
     "Rotation": 0,
@@ -61,13 +61,13 @@
             "Waypoints": [
                 {
                     "ActiveMasks": [
-                        "test"
+                        "test 1"
                     ],
                     "Arrows": [],
                     "Description": "description",
                     "Group": "group",
                     "Masks": [
-                        "test"
+                        "test 1"
                     ],
                     "Name": "name",
                     "Overlays": [],

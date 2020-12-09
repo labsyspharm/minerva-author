@@ -2,15 +2,20 @@ import re
 import os, sys
 from distutils import file_util
 
-def only_alphanumeric(s, empty='0'):
-    replaced = re.sub('[^0-9a-zA-Z]+', '', s)
+def dir_to_label(s):
+    return s.replace('-',' ')
+
+def label_to_dir(s, empty='0'):
+    replaced = re.sub('[^0-9a-zA-Z _-]+', '', s).strip()
+    replaced = replaced.replace(' ','_')
+    replaced = replaced.replace('_','-')
+    replaced = re.sub('-+', '-', replaced)
     return empty if replaced == '' else replaced
 
-def deduplicate_path(data_path, data_name, data_dict, data_dir):
+def deduplicate(data_name, data_dict, data_dir):
     """
     Return a local path for given data path
     Args:
-        data_path: the full path of the file to copy
         data_name: the basename of the target file
         data_dict: the existing mapping of local paths
         data_dir: the full path of the destination directory
@@ -20,7 +25,7 @@ def deduplicate_path(data_path, data_name, data_dict, data_dir):
     local_path = os.path.join(data_dir, basename)
     while local_path in data_dict.values():
         root, ext = os.path.splitext(basename) 
-        basename = f'{root}_{n_dups}{ext}'
+        basename = f'{root}-{n_dups}{ext}'
         local_path = os.path.join(data_dir, basename)
         n_dups += 1
     return local_path
@@ -38,18 +43,18 @@ def deduplicate_data(waypoints, data_dir):
             if vis in waypoint:
                 data_path = waypoint[vis]['data']
                 data_name = os.path.basename(data_path)
-                data_dict[data_path] = deduplicate_path(data_path, data_name, data_dict, data_dir)
+                data_dict[data_path] = deduplicate(data_name, data_dict, data_dir)
 
         if 'VisBarChart' in waypoint:
             data_name = waypoint['VisBarChart']
             data_name = os.path.basename(data_path)
-            data_dict[data_path] = deduplicate_path(data_path, data_name, data_dict, data_dir)
+            data_dict[data_path] = deduplicate(data_name, data_dict, data_dir)
 
     return data_dict
 
 def deduplicate_dicts(dicts, data_dir, in_key='path', out_key='label'):
     """
-    Map filesystem paths to local data paths
+    Map dictionaries by key to unique directories
     Args:
         dicts: list of dicts containing input key and output key 
         data_dir: the full path of the destination directory
@@ -58,14 +63,20 @@ def deduplicate_dicts(dicts, data_dir, in_key='path', out_key='label'):
     """
     data_dict = dict()
     for d in dicts:
-        data_path = d[in_key]
-        data_name = only_alphanumeric(d[out_key]) 
-        data_dict[data_path] = deduplicate_path(data_path, data_name, data_dict, data_dir)
+        data_in = d[in_key]
+        data_name = label_to_dir(d[out_key]) 
+        data_dict[data_in] = deduplicate(data_name, data_dict, data_dir)
 
     return data_dict
 
-def dedup_path_to_label(dicts, data_dir):
-    return deduplicate_dicts(dicts, data_dir, 'path', 'label')
+def dedup_index_to_label(dicts, data_dir):
+    dicts_with_index = [
+        {'index':i} for (i,d) in enumerate(dicts)
+    ]
+    for (i,d) in enumerate(dicts_with_index):
+        d.update(dicts[i])
+
+    return deduplicate_dicts(dicts_with_index, data_dir, 'index', 'label')
 
 def dedup_label_to_label(dicts, data_dir):
     return deduplicate_dicts(dicts, data_dir, 'label', 'label')
@@ -97,9 +108,9 @@ def create_story_base(title, waypoints, masks):
     file_util.copy_file(os.path.join(story_dir, 'index.html'), export_dir)
 
     vis_path_dict = deduplicate_data(waypoints, data_dir)
-    mask_path_dict = dedup_path_to_label(masks, out_dir)
+    mask_index_dict = dedup_index_to_label(masks, out_dir)
 
-    for mask_path in mask_path_dict.values():
+    for mask_path in mask_index_dict.values():
         os.makedirs(mask_path, exist_ok=True)
 
     for in_path, out_path in vis_path_dict.items():

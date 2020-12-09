@@ -43,7 +43,7 @@
                 }
             ],
             "label": "../",
-            "path": "./test copy.ome.tif"
+            "path": "./test.ome.tif"
         }
     ],
     "rotation": 0,
@@ -52,7 +52,7 @@
             "arrows": [],
             "group": "group",
             "masks": [
-                "../"
+                1
             ],
             "name": "name",
             "overlays": [],
