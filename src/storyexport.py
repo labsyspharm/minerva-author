@@ -2,9 +2,6 @@ import re
 import os, sys
 from distutils import file_util
 
-def dir_to_label(s):
-    return s.replace('-',' ')
-
 def label_to_dir(s, empty='0'):
     replaced = re.sub('[^0-9a-zA-Z _-]+', '', s).strip()
     replaced = replaced.replace(' ','_')
@@ -52,34 +49,49 @@ def deduplicate_data(waypoints, data_dir):
 
     return data_dict
 
-def deduplicate_dicts(dicts, data_dir, in_key='path', out_key='label'):
+def deduplicate_dicts(dicts, data_dir='', in_key='label', out_key='label', is_dir=False):
     """
-    Map dictionaries by key to unique directories
+    Map dictionaries by key to unique labels 
     Args:
         dicts: list of dicts containing input key and output key 
         data_dir: the full path of the destination directory
         in_key: used for key of output dictionary
         out_key: used for values of output dictionary
+        is_dir: set true if unique labels must be directories
     """
     data_dict = dict()
     for d in dicts:
         data_in = d[in_key]
-        data_name = label_to_dir(d[out_key]) 
+        data_name = label_to_dir(d[out_key]) if is_dir else d[out_key]
         data_dict[data_in] = deduplicate(data_name, data_dict, data_dir)
 
     return data_dict
 
-def dedup_index_to_label(dicts, data_dir):
+def dedup_index_to_label(dicts):
     dicts_with_index = [
-        {'index':i} for (i,d) in enumerate(dicts)
+        {'index':i, 'label': d['label']} for (i,d) in enumerate(dicts)
     ]
-    for (i,d) in enumerate(dicts_with_index):
-        d.update(dicts[i])
+    return deduplicate_dicts(dicts_with_index, '',
+                            'index', 'label', False)
 
-    return deduplicate_dicts(dicts_with_index, data_dir, 'index', 'label')
+def dedup_index_to_path(dicts, data_dir=''):
+    dicts_with_index = [
+        {'index':i, 'label': d['label']} for (i,d) in enumerate(dicts)
+    ]
+    return deduplicate_dicts(dicts_with_index, data_dir,
+                            'index', 'label', True)
 
-def dedup_label_to_label(dicts, data_dir):
-    return deduplicate_dicts(dicts, data_dir, 'label', 'label')
+def dedup_label_to_path(dicts, data_dir=''):
+    return deduplicate_dicts(dicts, data_dir, 'label', 'label', True)
+
+def mask_path_from_index(mask_data, index, data_dir=''):
+    return dedup_index_to_path(mask_data, data_dir)[index]
+
+def mask_label_from_index(mask_data, index):
+    return dedup_index_to_label(mask_data)[index]
+
+def group_path_from_label(group_data, label, data_dir=''):
+    return dedup_label_to_path(group_data, data_dir)[label]
 
 def create_story_base(title, waypoints, masks):
     """
@@ -108,10 +120,11 @@ def create_story_base(title, waypoints, masks):
     file_util.copy_file(os.path.join(story_dir, 'index.html'), export_dir)
 
     vis_path_dict = deduplicate_data(waypoints, data_dir)
-    mask_index_dict = dedup_index_to_label(masks, out_dir)
+    mask_index_dict = dedup_index_to_path(masks, out_dir)
 
-    for mask_path in mask_index_dict.values():
-        os.makedirs(mask_path, exist_ok=True)
+    for i in range(len(masks)):
+        path_i = mask_path_from_index(masks, i, out_dir)
+        os.makedirs(path_i, exist_ok=True)
 
     for in_path, out_path in vis_path_dict.items():
         file_util.copy_file(in_path, out_path)
