@@ -664,7 +664,7 @@ def api_render():
                 'opener': mask_opener,
                 'out_dir': mask_path_from_index(mask_data, i, out_dir),
                 'colors': ['#'+c['color'] for c in mask['channels']],
-                'progress': create_progress_callback(mask_total, mask_path) 
+                'progress': create_progress_callback(mask_total, i) 
             })
 
         for m_args in mask_args:
