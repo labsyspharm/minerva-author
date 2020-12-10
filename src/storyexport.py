@@ -22,8 +22,7 @@ def deduplicate(data_name, data_dict, data_dir):
     local_path = os.path.join(data_dir, basename)
     while local_path in data_dict.values():
         root, ext = os.path.splitext(basename) 
-        basename = f'{root}-{n_dups}{ext}'
-        local_path = os.path.join(data_dir, basename)
+        local_path = os.path.join(data_dir, f'{root}-{n_dups}{ext}')
         n_dups += 1
     return local_path
 

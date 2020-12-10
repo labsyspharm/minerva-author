@@ -15,7 +15,7 @@ def client():
 def test_make_exhibit_config():
 
     ome_tif_in = '../testimages/2048x2048_ome6_tiled.ome.tif'
-    for i in [0, 1]:
+    for i in [0, 1, 2]:
         exhibit_in = f'../testimages/exhibit{i}_in.json'
         exhibit_out = f'../testimages/exhibit{i}_out.json'
         exhibit_name = 'test'
