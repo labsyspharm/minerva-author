@@ -5,6 +5,8 @@ from imagecodecs import _jpeg2k # Needed for pyinstaller
 from numcodecs import compat_ext # Needed for pyinstaller
 from numcodecs import blosc # Needed for pyinstaller
 from urllib.parse import unquote
+from pyramid_assemble import main as make_ome
+from concurrent.futures import ProcessPoolExecutor
 import pathlib
 import re
 import string
@@ -17,6 +19,7 @@ import time
 import zarr
 from tifffile import TiffFile
 from tifffile import create_output
+from tifffile.tifffile import TiffFileError
 import pickle
 import webbrowser
 import numpy as np
@@ -50,12 +53,22 @@ from datetime import datetime
 import multiprocessing
 import logging
 import atexit
+import queue
 if os.name == 'nt':
     from ctypes import windll
 
 
 PORT = 2020
 
+FORMATTER = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+def check_ext(path):
+    base, ext1 = os.path.splitext(path)
+    ext2 = os.path.splitext(base)[1]
+    return ext2 + ext1
+
+def tif_path_to_ome_path(path):
+    base, ext = os.path.splitext(path)
+    return f'{base}.ome{ext}'
 
 class Opener:
 
@@ -63,9 +76,7 @@ class Opener:
         self.warning = ''
         self.path = path
         self.tilesize = 1024
-        base, ext1 = os.path.splitext(path)
-        ext2 = os.path.splitext(base)[1]
-        ext = ext2 + ext1
+        ext = check_ext(path)
 
         if ext == '.ome.tif' or ext == '.ome.tiff':
             self.io = TiffFile(self.path, is_ome=False)
@@ -297,6 +308,7 @@ def reset_globals():
         'out_yaml': None,
         'out_log': None,
         'logger': logging.getLogger('app'),
+        'import_pool': ProcessPoolExecutor(max_workers=1),
         'sample_info': {
             'rotation': 0,
             'name': '',
@@ -315,6 +327,11 @@ def reset_globals():
         'save_progress': {},
         'save_progress_max': {}
     }
+    _g['logger'].setLevel(logging.DEBUG)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(FORMATTER)
+    _g['logger'].addHandler(ch)
     return _g
 
 def resource_path(relative_path):
@@ -329,6 +346,7 @@ def resource_path(relative_path):
 
 G = reset_globals()
 tiff_lock = multiprocessing.Lock()
+mask_lock = multiprocessing.Lock()
 app = Flask(__name__,
             static_folder=resource_path('static'),
             static_url_path='')
@@ -343,12 +361,66 @@ def open_input_file(path):
         G['opener'] = Opener(path)
     tiff_lock.release()
 
-def open_input_mask(path):
-    global G
-    tiff_lock.acquire()
+def make_mask_opener(path):
     if path not in G['mask_openers']:
-        G['mask_openers'][path] = Opener(path)
-    tiff_lock.release()
+        try:
+            return Opener(path)
+        except (FileNotFoundError, TiffFileError) as e:
+            print(e)
+
+def convert_mask(path):
+    sys.stdout.reconfigure(line_buffering=True)
+
+    ome_path = tif_path_to_ome_path(path)
+    if os.path.exists(ome_path):
+        return
+
+    print(f'Converting {path}')
+    tmp_dir = 'minerva_author_tmp_dir'
+    tmp_dir = os.path.join(os.path.dirname(path), tmp_dir)
+    tmp_path = os.path.join(tmp_dir, 'tmp.tif')
+    if not os.path.exists(tmp_dir):
+        os.mkdir(tmp_dir)
+    if (os.path.exists(tmp_path)):
+        os.remove(tmp_path)
+    make_ome(
+        [pathlib.Path(path)], pathlib.Path(tmp_path),
+        is_mask=True, pixel_size=1
+    )
+    os.rename(tmp_path, ome_path)
+    if os.path.exists(tmp_dir) and not len(os.listdir(tmp_dir)):
+        os.rmdir(tmp_dir)
+    print(f'Done creating {ome_path}')
+
+def open_input_mask(path, convert=False):
+    global G
+    opener = None
+    ext = check_ext(path)
+    if ext == '.ome.tif' or ext == '.ome.tiff':
+        opener = make_mask_opener(path)
+    elif ext == '.tif' or ext == '.tiff':
+        ome_path = tif_path_to_ome_path(path)
+        convertable = os.path.exists(path) and not os.path.exists(ome_path)
+        if convert and convertable:
+            print(f'Submitting for conversion: {path}')
+            executor = G['import_pool'].submit(convert_mask, path)
+        elif os.path.exists(ome_path):
+            opener = make_mask_opener(ome_path)
+            path = ome_path
+    if isinstance(opener, Opener):
+        mask_lock.acquire()
+        G['mask_openers'][path] = opener
+        mask_lock.release()
+
+def get_mask_opener(path):
+    opener = None
+    ext = check_ext(path)
+    if ext == '.ome.tif' or ext == '.ome.tiff':
+        opener = G['mask_openers'].get(path)
+    elif ext == '.tif' or ext == '.tiff':
+        ome_path = tif_path_to_ome_path(path)
+        opener = G['mask_openers'].get(ome_path)
+    return opener
 
 def nocache(view):
     @wraps(view)
@@ -369,7 +441,13 @@ def root():
     """
     global G
     close_tiff()
+    close_masks()
+    close_import_pool()
+    tiff_lock.acquire()
+    mask_lock.acquire()
     G = reset_globals()
+    tiff_lock.release()
+    mask_lock.release()
     return app.send_static_file('index.html')
 
 @app.route('/story/', defaults={'path': 'index.html'})
@@ -383,6 +461,37 @@ def out_story(path):
         return response
     out_dir = os.path.dirname(G['out_yaml'])
     return send_file(os.path.join(out_dir, path))
+
+
+@app.route('/api/validate/u32/<key>')
+@cross_origin()
+@nocache
+def u32_validate(key):
+    """
+    Returns status for given image mask
+    Args:
+        key: URL-escaped path to mask
+
+    Returns: status dict
+        invalid: whether the original path does not exist
+        ready: whether the ome-tiff version of the path is ready
+        path: the ome-tiff version of the path
+    """
+    img_io = None
+    path = unquote(key)
+    invalid = not os.path.exists(path)
+
+    # Open the input file on the first request only
+    if path not in G['mask_openers']:
+        open_input_mask(path, convert=True)
+
+    opener = get_mask_opener(path)
+
+    return jsonify({
+        "invalid": invalid,
+        "ready": True if isinstance(opener, Opener) else False,
+        "path": opener.path if isinstance(opener, Opener) else ''
+    })
 
 @app.route('/api/u32/<key>/<level>_<x>_<y>.png')
 @cross_origin()
@@ -399,16 +508,19 @@ def u32_image(key, level, x, y):
     Returns: Tile image in png format
 
     """
+    img_io = None
     path = unquote(key)
 
     # Open the input file on the first request only
     if path not in G['mask_openers']:
-        open_input_mask(path)
+        open_input_mask(path, convert=False)
 
-    img_io = render_tile(G['mask_openers'][path], int(level),
-                        int(x), int(y), 0, fmt='RGBA')
+    opener = get_mask_opener(path)
+    if isinstance(opener, Opener):
+        img_io = render_tile(opener, int(level),
+                            int(x), int(y), 0, fmt='RGBA')
+
     if img_io is None:
-
         response = make_response('Not found', 404)
         response.mimetype = "text/plain"
         return response
@@ -656,16 +768,19 @@ def api_render():
         for (i,mask) in enumerate(mask_data):
             mask_path = mask['path']
             if mask_path not in G['mask_openers']:
-                open_input_mask(mask_path)
-            mask_opener = G['mask_openers'][mask_path]
-            num_levels = mask_opener.get_shape()[1]
-            mask_total = _calculate_total_tiles(mask_opener, 1024, num_levels, 1)
-            mask_args.append({
-                'opener': mask_opener,
-                'out_dir': mask_path_from_index(mask_data, i, out_dir),
-                'colors': ['#'+c['color'] for c in mask['channels']],
-                'progress': create_progress_callback(mask_total, i) 
-            })
+                open_input_mask(mask_path, convert=False)
+            mask_opener = get_mask_opener(mask_path)
+            if isinstance(mask_opener, Opener):
+                num_levels = mask_opener.get_shape()[1]
+                mask_total = _calculate_total_tiles(mask_opener, 1024, num_levels, 1)
+                mask_args.append({
+                    'opener': mask_opener,
+                    'out_dir': mask_path_from_index(mask_data, i, out_dir),
+                    'colors': ['#'+c['color'] for c in mask['channels']],
+                    'progress': create_progress_callback(mask_total, i)
+                })
+            else:
+                print(f'Skipping render of {mask_path}')
 
         for m_args in mask_args:
             render_u32_tiles(m_args['opener'], m_args['out_dir'],
@@ -794,12 +909,7 @@ def api_import():
 
         fh = logging.FileHandler(str(out_log))
         fh.setLevel(logging.DEBUG)
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        ch.setFormatter(formatter)
-        fh.setFormatter(formatter)
-        G['logger'].addHandler(ch)
+        fh.setFormatter(FORMATTER)
         G['logger'].addHandler(fh)
 
         if os.path.exists(input_file):
@@ -909,14 +1019,34 @@ def close_tiff():
         except Exception as e:
             print(e)
 
+def close_masks():
+    print("Closing mask files")
+    for opener in G['mask_openers'].values():
+        try:
+            opener.close()
+        except Exception as e:
+            print(e)
+
+def close_import_pool():
+    print("Closing import pool")
+    if G['import_pool'] is not None:
+        try:
+            G['import_pool'].shutdown()
+        except Exception as e:
+            print(e)
+
 def open_browser():
     webbrowser.open_new('http://127.0.0.1:' + str(PORT) + '/')
-
 
 if __name__ == '__main__':
     Timer(1, open_browser).start()
 
     atexit.register(close_tiff)
+    atexit.register(close_masks)
+    atexit.register(close_import_pool)
+
+    sys.stdout.reconfigure(line_buffering=True)
+
     if '--dev' in sys.argv:
         app.run(debug=False, port=PORT)
     else:
