@@ -15,7 +15,6 @@ import json
 import yaml
 import time
 import os
-from collections import OrderedDict
 
 def composite_channel(target, image, color, range_min, range_max):
     ''' Render _image_ in pseudocolor and composite into _target_
@@ -43,6 +42,9 @@ def _calculate_total_tiles(opener, tile_size, num_levels, num_channels):
 def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows, logger, progress_callback=None):
     EXT = 'jpg'
 
+    for settings in config_rows:
+        settings['Source'] = opener.path
+
     print('Processing:', str(opener.path))
 
     output_path = pathlib.Path(output_dir)
@@ -55,7 +57,10 @@ def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows,
 
     if os.path.exists(config_path):
         with open(config_path, 'r') as f:
-            old_rows = json.load(f)
+            try:
+                old_rows = json.load(f)
+            except json.decoder.JSONDecodeError as err:
+                print(err)
 
     with open(config_path, 'w') as f:
         json.dump(config_rows, f)
@@ -64,19 +69,6 @@ def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows,
         assert opener.io.number_of_pages % num_channels == 0, "Pyramid/channel mismatch"
 
     num_levels = opener.get_shape()[1]
-
-    render_groups = OrderedDict()
-    for i in config_rows:
-        if i['Group'] not in render_groups.keys():
-            render_groups[i['Group']] = {
-                'Channel Number': [],
-                'Low': [],
-                'High': [],
-                'Color': [],
-                'Marker Name': []
-            }
-        for key in render_groups[i['Group']]:
-            render_groups[i['Group']][key].append(i[key])
 
     total_tiles = _calculate_total_tiles(opener, tile_size, num_levels, num_channels)
     progress = 0
@@ -93,14 +85,10 @@ def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows,
 
             filename = '{}_{}_{}.{}'.format(level, tx, ty, EXT)
 
-            for name, settings in render_groups.items():
+            for settings in config_rows:
+                print(settings)
 
-                channels = '--'.join(
-                    settings['Channel Number'][i] + '__' + settings['Marker Name'][i]
-                    for i in range(len(settings['Color']))
-                )
-
-                group_dir = name.replace(' ', '-') + '_' + channels
+                group_dir = settings['Group Path'] 
                 if not (output_path / group_dir).exists():
                     (output_path / group_dir).mkdir(parents=True)
                 output_file = str(output_path / group_dir / filename)
@@ -117,4 +105,4 @@ def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows,
 
                 progress += 1
                 if progress_callback is not None:
-                    progress_callback(progress, len(render_groups)*total_tiles)
+                    progress_callback(progress, len(config_rows)*total_tiles)

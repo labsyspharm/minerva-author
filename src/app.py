@@ -2,6 +2,11 @@ from imagecodecs import _zlib # Needed for pyinstaller
 from imagecodecs import _imcd # Needed for pyinstaller
 from imagecodecs import _jpeg8 # Needed for pyinstaller
 from imagecodecs import _jpeg2k # Needed for pyinstaller
+from numcodecs import compat_ext # Needed for pyinstaller
+from numcodecs import blosc # Needed for pyinstaller
+from urllib.parse import unquote
+from pyramid_assemble import main as make_ome
+from concurrent.futures import ProcessPoolExecutor
 import pathlib
 import re
 import string
@@ -14,6 +19,7 @@ import time
 import zarr
 from tifffile import TiffFile
 from tifffile import create_output
+from tifffile.tifffile import TiffFileError
 import pickle
 import webbrowser
 import numpy as np
@@ -29,9 +35,16 @@ from flask import request
 from flask import send_file 
 from flask import make_response
 from render_png import render_tile
+from render_png import colorize_mask
+from render_png import render_u32_tiles
 from render_jpg import render_color_tiles
 from render_jpg import composite_channel
-from storyexport import create_story_base, get_story_folders, deduplicate_data
+from render_jpg import _calculate_total_tiles
+from storyexport import create_story_base, get_story_folders
+from storyexport import deduplicate_data, label_to_dir 
+from storyexport import mask_path_from_index
+from storyexport import mask_label_from_index
+from storyexport import group_path_from_label
 from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
@@ -40,12 +53,22 @@ from datetime import datetime
 import multiprocessing
 import logging
 import atexit
+import queue
 if os.name == 'nt':
     from ctypes import windll
 
 
 PORT = 2020
 
+FORMATTER = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+def check_ext(path):
+    base, ext1 = os.path.splitext(path)
+    ext2 = os.path.splitext(base)[1]
+    return ext2 + ext1
+
+def tif_path_to_ome_path(path):
+    base, ext = os.path.splitext(path)
+    return f'{base}.ome{ext}'
 
 class Opener:
 
@@ -53,9 +76,7 @@ class Opener:
         self.warning = ''
         self.path = path
         self.tilesize = 1024
-        base, ext1 = os.path.splitext(path)
-        ext2 = os.path.splitext(base)[1]
-        ext = ext2 + ext1
+        ext = check_ext(path)
 
         if ext == '.ome.tif' or ext == '.ome.tiff':
             self.io = TiffFile(self.path, is_ome=False)
@@ -112,8 +133,9 @@ class Opener:
     def get_level_tiles(self, level, tile_size):
         if self.reader == 'tifffile':
 
-            ny = int(np.ceil(self.group[level].shape[1] / tile_size))
-            nx = int(np.ceil(self.group[level].shape[2] / tile_size))
+            # Negative indexing to support shape len 3 or len 2
+            ny = int(np.ceil(self.group[level].shape[-2] / tile_size))
+            nx = int(np.ceil(self.group[level].shape[-1] / tile_size))
             print((nx, ny))
             return (nx, ny)
         elif self.reader == 'openslide':
@@ -125,7 +147,11 @@ class Opener:
 
             num_levels = len(self.group)
             shape = self.group[0].shape
-            (num_channels, shape_y, shape_x) = shape
+            if len(shape) == 3:
+                (num_channels, shape_y, shape_x) = shape
+            else:
+                (shape_y, shape_x) = shape
+                num_channels = 1
             return (num_channels, num_levels, shape_x, shape_y)
 
         elif self.reader == 'openslide':
@@ -144,8 +170,12 @@ class Opener:
         ix = tx * tilesize
         iy = ty * tilesize
 
+        num_channels = self.get_shape()[0]
         try:
-            tile = self.group[level][channel_number, iy:iy+tilesize, ix:ix+tilesize]
+            if num_channels == 1:
+                tile = self.group[level][iy:iy+tilesize, ix:ix+tilesize]
+            else:
+                tile = self.group[level][channel_number, iy:iy+tilesize, ix:ix+tilesize]
             tile = np.squeeze(tile)
             return tile
         except Exception as e:
@@ -180,7 +210,7 @@ class Opener:
 
             return tile
 
-    def get_tile(self, num_channels, level, tx, ty, channel_number):
+    def get_tile(self, num_channels, level, tx, ty, channel_number, fmt=None):
         
         if self.reader == 'tifffile':
  
@@ -195,7 +225,7 @@ class Opener:
                 format = 'I;8'
             else:
                 tile = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
-                format = 'I;16'
+                format = fmt if fmt else 'I;16'
 
             return Image.fromarray(tile, format)
 
@@ -204,7 +234,7 @@ class Opener:
             img = self.dz.get_tile(l, (tx, ty))
             return img
 
-    def save_tile(self, output_file, settings, tile_size, level, tx, ty):
+    def save_tile(self, output_file, settings, tile_size, level, tx, ty, is_mask=False):
         if self.reader == 'tifffile' and self.is_rgba('3 channel'):
 
             num_channels = self.get_shape()[0]
@@ -227,7 +257,18 @@ class Opener:
             img = Image.fromarray(tile, 'RGB')
             img.save(output_file, quality=85)
 
-        elif self.reader == 'tifffile':
+        elif self.reader == 'tifffile' and is_mask:
+            color = settings['Color'][0]
+            num_channels = self.get_shape()[0]
+            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+            target = np.zeros(tile.shape + (4,), np.uint8)
+            colorize_mask(
+                target, tile, colors.to_rgb(color)
+            )
+            img = Image.frombytes('RGBA', target.T.shape[1:], target.tobytes())
+            img.save(output_file, quality=85)
+
+        elif self.reader == 'tifffile' and not is_mask:
             for i, (marker, color, start, end) in enumerate(zip(
                     settings['Channel Number'], settings['Color'],
                     settings['Low'], settings['High']
@@ -252,7 +293,6 @@ class Opener:
             img = self.dz.get_tile(l, (tx, ty))
             img.save(output_file, quality=85)
 
-
 def api_error(status, message):
     return jsonify({
         "error": message
@@ -268,11 +308,14 @@ def reset_globals():
         'out_yaml': None,
         'out_log': None,
         'logger': logging.getLogger('app'),
+        'import_pool': ProcessPoolExecutor(max_workers=1),
         'sample_info': {
             'rotation': 0,
             'name': '',
             'text': ''
         },
+        'mask_openers': {},
+        'masks': [],
         'groups': [],
         'waypoints': [],
         'channels': [],
@@ -281,15 +324,15 @@ def reset_globals():
         'tilesize': 1024,
         'height': 1024,
         'width': 1024,
-        'save_progress': 0,
-        'save_progress_max': 0
+        'save_progress': {},
+        'save_progress_max': {}
     }
-    _yaml = {
-        'Images': [],
-        'Layout': {'Grid': [['i0']]},
-        'Groups': []
-    }
-    return (_g, _yaml)
+    _g['logger'].setLevel(logging.DEBUG)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    ch.setFormatter(FORMATTER)
+    _g['logger'].addHandler(ch)
+    return _g
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
@@ -301,8 +344,9 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
-G, YAML = reset_globals()
+G = reset_globals()
 tiff_lock = multiprocessing.Lock()
+mask_lock = multiprocessing.Lock()
 app = Flask(__name__,
             static_folder=resource_path('static'),
             static_url_path='')
@@ -311,11 +355,72 @@ cors = CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
 def open_input_file(path):
+    global G
     tiff_lock.acquire()
     if G['opener'] is None and path is not None:
         G['opener'] = Opener(path)
     tiff_lock.release()
 
+def make_mask_opener(path):
+    if path not in G['mask_openers']:
+        try:
+            return Opener(path)
+        except (FileNotFoundError, TiffFileError) as e:
+            print(e)
+
+def convert_mask(path):
+    sys.stdout.reconfigure(line_buffering=True)
+
+    ome_path = tif_path_to_ome_path(path)
+    if os.path.exists(ome_path):
+        return
+
+    print(f'Converting {path}')
+    tmp_dir = 'minerva_author_tmp_dir'
+    tmp_dir = os.path.join(os.path.dirname(path), tmp_dir)
+    tmp_path = os.path.join(tmp_dir, 'tmp.tif')
+    if not os.path.exists(tmp_dir):
+        os.mkdir(tmp_dir)
+    if (os.path.exists(tmp_path)):
+        os.remove(tmp_path)
+    make_ome(
+        [pathlib.Path(path)], pathlib.Path(tmp_path),
+        is_mask=True, pixel_size=1
+    )
+    os.rename(tmp_path, ome_path)
+    if os.path.exists(tmp_dir) and not len(os.listdir(tmp_dir)):
+        os.rmdir(tmp_dir)
+    print(f'Done creating {ome_path}')
+
+def open_input_mask(path, convert=False):
+    global G
+    opener = None
+    ext = check_ext(path)
+    if ext == '.ome.tif' or ext == '.ome.tiff':
+        opener = make_mask_opener(path)
+    elif ext == '.tif' or ext == '.tiff':
+        ome_path = tif_path_to_ome_path(path)
+        convertable = os.path.exists(path) and not os.path.exists(ome_path)
+        if convert and convertable:
+            print(f'Submitting for conversion: {path}')
+            executor = G['import_pool'].submit(convert_mask, path)
+        elif os.path.exists(ome_path):
+            opener = make_mask_opener(ome_path)
+            path = ome_path
+    if isinstance(opener, Opener):
+        mask_lock.acquire()
+        G['mask_openers'][path] = opener
+        mask_lock.release()
+
+def get_mask_opener(path):
+    opener = None
+    ext = check_ext(path)
+    if ext == '.ome.tif' or ext == '.ome.tiff':
+        opener = G['mask_openers'].get(path)
+    elif ext == '.tif' or ext == '.tiff':
+        ome_path = tif_path_to_ome_path(path)
+        opener = G['mask_openers'].get(ome_path)
+    return opener
 
 def nocache(view):
     @wraps(view)
@@ -335,9 +440,14 @@ def root():
     Serves the minerva-author web UI
     """
     global G
-    global YAML
     close_tiff()
-    G, YAML = reset_globals()
+    close_masks()
+    close_import_pool()
+    tiff_lock.acquire()
+    mask_lock.acquire()
+    G = reset_globals()
+    tiff_lock.release()
+    mask_lock.release()
     return app.send_static_file('index.html')
 
 @app.route('/story/', defaults={'path': 'index.html'})
@@ -351,6 +461,72 @@ def out_story(path):
         return response
     out_dir = os.path.dirname(G['out_yaml'])
     return send_file(os.path.join(out_dir, path))
+
+
+@app.route('/api/validate/u32/<key>')
+@cross_origin()
+@nocache
+def u32_validate(key):
+    """
+    Returns status for given image mask
+    Args:
+        key: URL-escaped path to mask
+
+    Returns: status dict
+        invalid: whether the original path does not exist
+        ready: whether the ome-tiff version of the path is ready
+        path: the ome-tiff version of the path
+    """
+    img_io = None
+    path = unquote(key)
+    invalid = not os.path.exists(path)
+
+    # Open the input file on the first request only
+    if path not in G['mask_openers']:
+        open_input_mask(path, convert=True)
+
+    opener = get_mask_opener(path)
+
+    return jsonify({
+        "invalid": invalid,
+        "ready": True if isinstance(opener, Opener) else False,
+        "path": opener.path if isinstance(opener, Opener) else ''
+    })
+
+@app.route('/api/u32/<key>/<level>_<x>_<y>.png')
+@cross_origin()
+@nocache
+def u32_image(key, level, x, y):
+    """
+    Returns a 32-bit tile from given image mask
+    Args:
+        key: URL-escaped path to mask
+        level: Pyramid level
+        x: Tile coordinate x
+        y: Tile coordinate y
+
+    Returns: Tile image in png format
+
+    """
+    img_io = None
+    path = unquote(key)
+
+    # Open the input file on the first request only
+    if path not in G['mask_openers']:
+        open_input_mask(path, convert=False)
+
+    opener = get_mask_opener(path)
+    if isinstance(opener, Opener):
+        img_io = render_tile(opener, int(level),
+                            int(x), int(y), 0, fmt='RGBA')
+
+    if img_io is None:
+        response = make_response('Not found', 404)
+        response.mimetype = "text/plain"
+        return response
+ 
+    return send_file(img_io, mimetype='image/png')
+
 
 @app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
@@ -372,8 +548,8 @@ def u16_image(channel, level, x, y):
     if G['opener'] is None:
         open_input_file(G['in_file'])
 
-    img_io = render_tile(G['opener'], len(G['channels']),
-                        int(level), int(x), int(y), int(channel))
+    img_io = render_tile(G['opener'], int(level),
+                         int(x), int(y), int(channel))
     if img_io is None:
 
         response = make_response('Not found', 404)
@@ -388,63 +564,6 @@ def u16_image(channel, level, x, y):
 def out_image(path):
     image_path = os.path.join(G['out_dir'], path)
     return send_file(image_path, mimetype='image/jpeg')
-
-@app.route('/api/stories', methods=['POST'])
-@cross_origin()
-@nocache
-def api_stories():
-
-    def format_arrow(a):
-        return {
-            'Text': a['text'],
-            'HideArrow': a['hide'],
-            'Point': a['position'],
-            'Angle': 60 if a['angle'] == '' else a['angle']
-        }
-
-    def format_overlay(o):
-        return {
-            'x': o[0],
-            'y': o[1],
-            'width': o[2],
-            'height': o[3]
-        }
-
-    def make_waypoints(d):
-
-        data_dict = deduplicate_data(d, 'data')
-        for waypoint in d:
-            wp = {
-                'Name': waypoint['name'],
-                'Description': waypoint['text'],
-                'Arrows': list(map(format_arrow, waypoint['arrows'])),
-                'Overlays': list(map(format_overlay, waypoint['overlays'])),
-                'Group': waypoint['group'],
-                'Zoom': waypoint['zoom'],
-                'Pan': waypoint['pan'],
-            }
-            for vis in ['VisScatterplot', 'VisCanvasScatterplot', 'VisMatrix']:
-                if vis in waypoint:
-                    wp[vis] = waypoint[vis]
-                    wp[vis]['data'] = data_dict[wp[vis]['data']]
-
-            if 'VisBarChart' in waypoint:
-                wp['VisBarChart'] = data_dict[waypoint['VisBarChart']]
-
-            yield wp
-
-    def make_stories(d):
-        for story in d:
-            yield {
-                'Name': story['name'],
-                'Description': story['text'],
-                'Waypoints': list(make_waypoints(story['waypoints']))
-            }
-
-    if request.method == 'POST':
-        data = request.json['stories']
-        YAML['Stories'] = list(make_stories(data))
-        return 'OK'
 
 @app.route('/api/save', methods=['POST'])
 @cross_origin()
@@ -462,6 +581,7 @@ def api_save():
         G['sample_info'] = data['sample_info']
         G['waypoints'] = data['waypoints']
         G['groups'] = data['groups']
+        G['masks'] = data['masks']
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
 
@@ -476,9 +596,14 @@ def api_save():
         return 'OK'
     
 
-def render_progress_callback(current, max):
-    G['save_progress'] = current
-    G['save_progress_max'] = max
+def render_progress_callback(current, maximum, key='default'):
+    G['save_progress'][key] = current
+    G['save_progress_max'][key] = maximum
+
+def create_progress_callback(maximum, key='default'):
+    def progress_callback(current):
+        render_progress_callback(current, maximum, key)
+    return progress_callback
 
 @app.route('/api/render/progress', methods=['GET'])
 @cross_origin()
@@ -490,9 +615,123 @@ def get_render_progress():
 
     """
     return jsonify({
-        "progress": G['save_progress'],
-        "max": G['save_progress_max']
+        "progress": sum(G['save_progress'].values()),
+        "max": sum(G['save_progress_max'].values())
     })
+
+def format_arrow(a):
+    return {
+        'Text': a['text'],
+        'HideArrow': a['hide'],
+        'Point': a['position'],
+        'Angle': 60 if a['angle'] == '' else a['angle']
+    }
+
+def format_overlay(o):
+    return {
+        'x': o[0],
+        'y': o[1],
+        'width': o[2],
+        'height': o[3]
+    }
+
+def make_waypoints(d, mask_data):
+
+    vis_path_dict = deduplicate_data(d, 'data')
+    for waypoint in d:
+        wp_masks = waypoint['masks']
+        mask_labels = [mask_label_from_index(mask_data, i) for i in wp_masks]
+        wp = {
+            'Name': waypoint['name'],
+            'Description': waypoint['text'],
+            'Arrows': list(map(format_arrow, waypoint['arrows'])),
+            'Overlays': list(map(format_overlay, waypoint['overlays'])),
+            'Group': waypoint['group'],
+            'Masks': mask_labels,
+            'ActiveMasks': mask_labels,
+            'Zoom': waypoint['zoom'],
+            'Pan': waypoint['pan'],
+        }
+        for vis in ['VisScatterplot', 'VisCanvasScatterplot', 'VisMatrix']:
+            if vis in waypoint:
+                wp[vis] = waypoint[vis]
+                wp[vis]['data'] = vis_path_dict[wp[vis]['data']]
+
+        if 'VisBarChart' in waypoint:
+            wp['VisBarChart'] = vis_path_dict[waypoint['VisBarChart']]
+
+        yield wp
+
+def make_stories(d, mask_data):
+    return [{
+        'Name': '',
+        'Description': '',
+        'Waypoints': list(make_waypoints(d, mask_data))
+    }]
+
+def make_mask_yaml(mask_data):
+    for (i, mask) in enumerate(mask_data):
+        yield {
+            'Path': mask_path_from_index(mask_data, i),
+            'Name': mask_label_from_index(mask_data, i),
+            'Colors': [c['color'] for c in mask['channels']],
+            'Channels': [c['label'] for c in mask['channels']]
+        }
+
+def make_group_path(groups, group):
+    c_path = '--'.join(
+        str(c['id']) + '__' + label_to_dir(c['label'])
+        for c in group['channels']
+    )
+    g_path = group_path_from_label(groups, group['label'])
+    return  g_path + '_' + c_path
+
+
+def make_yaml(d):
+    for group in d:
+        yield {
+            'Name': group['label'],
+            'Path': make_group_path(d, group),
+            'Colors': [c['color'] for c in group['channels']],
+            'Channels': [c['label'] for c in group['channels']]
+        }
+
+def make_rows(d):
+    for group in d:
+        channels = group['channels']
+        yield {
+            'Group Path': make_group_path(d, group), 
+            'Channel Number': [str(c['id']) for c in channels],
+            'Low': [int(65535 * c['min']) for c in channels],
+            'High': [int(65535 * c['max']) for c in channels],
+            'Color': ['#' + c['color'] for c in channels]
+        }
+
+def make_exhibit_config(opener, out_name, json):
+
+    data = json['groups']
+    mask_data = json['masks']
+    waypoint_data = json['waypoints']
+    (num_channels, num_levels, width, height) = opener.get_shape()
+
+    _config = {
+        'Images': [{
+            'Name': 'i0',
+            'Description': json['image']['description'],
+            'Path': 'images/' + out_name,
+            'Width': width,
+            'Height': height,
+            'MaxLevel': num_levels - 1
+        }],
+        'Header': json['header'],
+        'Rotation': json['rotation'],
+        'Layout': {'Grid': [['i0']]},
+        'Stories': make_stories(waypoint_data, mask_data),
+        'Masks': list(make_mask_yaml(mask_data)),
+        'Groups': list(make_yaml(data))
+    }
+    return _config
+
 
 @app.route('/api/render', methods=['POST'])
 @cross_origin()
@@ -503,58 +742,50 @@ def api_render():
     Returns: OK on success
 
     """
-    G['save_progress'] = 0
-    G['save_progress_max'] = 0
+    G['save_progress'] = {}
+    G['save_progress_max'] = {}
 
-    def make_yaml(d):
-        for group in d:
-            channels = group['channels']
-            c_path = '--'.join(
-                str(channels[i]['id']) + '__' + channels[i]['label']
-                for i in range(len(channels))
-            )
-            g_path = group['label'].replace(' ', '-') + '_' + c_path
-
-            yield {
-                'Path': g_path,
-                'Name': group['label'],
-                'Colors': [c['color'] for c in channels],
-                'Channels': [c['label'] for c in channels]
-            }
-
-    def make_rows(d):
-        for group in d:
-            for channel in group['channels']:
-                yield {
-                    'Group': group['label'],
-                    'Marker Name': channel['label'],
-                    'Channel Number': str(channel['id']),
-                    'Low': int(65535 * channel['min']),
-                    'High': int(65535 * channel['max']),
-                    'Color': '#' + channel['color'],
-                }
-    
     if request.method == 'POST':
         data = request.json['groups']
+        mask_data = request.json['masks']
+        waypoint_data = request.json['waypoints']
         config_rows = list(make_rows(data))
-        YAML['Groups'] = list(make_yaml(data))
-        YAML['Header'] = request.json['header']
-        YAML['Rotation'] = request.json['rotation']
-        sample_name = request.json['image']['description']
-        YAML['Images'][0]['Description'] = sample_name
-        YAML['Images'][0]['Path'] = 'images/' + G['out_name']
-
-        create_story_base(G['out_name'], request.json['waypoints'])
+        exhibit_config = make_exhibit_config(G['opener'], G['out_name'], request.json)
+        create_story_base(G['out_name'], waypoint_data, mask_data)
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
         G['out_yaml'] = out_yaml
 
         with open(G['out_yaml'], 'w') as wf:
-            json_text = json.dumps(YAML, ensure_ascii=False)
+            json_text = json.dumps(exhibit_config, ensure_ascii=False)
             wf.write(json_text)
 
         render_color_tiles(G['opener'], G['out_dir'], 1024,
-                           len(G['channels']), config_rows, G['logger'], progress_callback=render_progress_callback)
+                           len(G['channels']), config_rows, G['logger'],
+                           progress_callback=render_progress_callback)
+
+        mask_args = []
+        for (i,mask) in enumerate(mask_data):
+            mask_path = mask['path']
+            if mask_path not in G['mask_openers']:
+                open_input_mask(mask_path, convert=False)
+            mask_opener = get_mask_opener(mask_path)
+            if isinstance(mask_opener, Opener):
+                num_levels = mask_opener.get_shape()[1]
+                mask_total = _calculate_total_tiles(mask_opener, 1024, num_levels, 1)
+                mask_args.append({
+                    'opener': mask_opener,
+                    'out_dir': mask_path_from_index(mask_data, i, out_dir),
+                    'colors': ['#'+c['color'] for c in mask['channels']],
+                    'progress': create_progress_callback(mask_total, i)
+                })
+            else:
+                print(f'Skipping render of {mask_path}')
+
+        for m_args in mask_args:
+            render_u32_tiles(m_args['opener'], m_args['out_dir'],
+                            1024, m_args['colors'], G['logger'],
+                            progress_callback=m_args['progress'])
 
         return 'OK'
 
@@ -587,6 +818,7 @@ def api_import():
             'waypoints': G['waypoints'],
             'sample_info': G['sample_info'],
             'groups': G['groups'],
+            'masks': G['masks'],
             'channels': G['channels'],
             'tilesize': G['tilesize'],
             'maxLevel': G['maxLevel'],
@@ -625,13 +857,14 @@ def api_import():
 
             G['waypoints'] = saved['waypoints']
             G['groups'] = saved['groups']
+            G['masks'] = saved['masks']
             for group in saved['groups']:
                 for chan in group['channels']:
                     chanLabel[str(chan['id'])] = chan['label']
         else:
             csv_file = pathlib.Path(data['csvpath'])
 
-        out_name = data['dataset']
+        out_name = label_to_dir(data['dataset'], empty='out')
         if out_name == '':
             out_name = 'out'
 
@@ -643,18 +876,9 @@ def api_import():
             if G['opener'] is None:
                 open_input_file(str(input_file))
 
-
             (num_channels, num_levels, width, height) = G['opener'].get_shape()
             tilesize = G['opener'].tilesize
 
-            YAML['Images'] = [{
-                'Name': 'i0',
-                'Description': '',
-                'Path': 'http://127.0.0.1:2020/api/out',
-                'Width': width,
-                'Height': height,
-                'MaxLevel': num_levels - 1
-            }]
             G['maxLevel'] = num_levels - 1
             G['tilesize'] = tilesize
             G['height'] = height
@@ -685,19 +909,14 @@ def api_import():
 
         fh = logging.FileHandler(str(out_log))
         fh.setLevel(logging.DEBUG)
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        ch.setFormatter(formatter)
-        fh.setFormatter(formatter)
-        G['logger'].addHandler(ch)
+        fh.setFormatter(FORMATTER)
         G['logger'].addHandler(fh)
 
         if os.path.exists(input_file):
             G['out_yaml'] = str(out_yaml)
             G['out_dat'] = str(out_dat)
             G['out_dir'] = str(out_dir)
-            G['out_name'] = out_name
+            G['out_name'] = label_to_dir(out_name, empty='out')
             G['in_file'] = str(input_file)
             G['csv_file'] = str(csv_file)
             G['channels'] = labels
@@ -800,14 +1019,34 @@ def close_tiff():
         except Exception as e:
             print(e)
 
+def close_masks():
+    print("Closing mask files")
+    for opener in G['mask_openers'].values():
+        try:
+            opener.close()
+        except Exception as e:
+            print(e)
+
+def close_import_pool():
+    print("Closing import pool")
+    if G['import_pool'] is not None:
+        try:
+            G['import_pool'].shutdown()
+        except Exception as e:
+            print(e)
+
 def open_browser():
     webbrowser.open_new('http://127.0.0.1:' + str(PORT) + '/')
-
 
 if __name__ == '__main__':
     Timer(1, open_browser).start()
 
     atexit.register(close_tiff)
+    atexit.register(close_masks)
+    atexit.register(close_import_pool)
+
+    sys.stdout.reconfigure(line_buffering=True)
+
     if '--dev' in sys.argv:
         app.run(debug=False, port=PORT)
     else:

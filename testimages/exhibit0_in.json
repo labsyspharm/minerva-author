@@ -1,0 +1,67 @@
+{
+    "groups": [
+        {
+            "channels": [
+                {
+                    "color": "ff7f7f",
+                    "id": 0,
+                    "label": "0",
+                    "max": 0.5000076295109483,
+                    "min": 0
+                },
+                {
+                    "color": "ff7f00",
+                    "id": 1,
+                    "label": "1",
+                    "max": 0.5605554283970398,
+                    "min": 0
+                }
+            ],
+            "label": "group"
+        }
+    ],
+    "header": "",
+    "image": {
+        "description": ""
+    },
+    "masks": [
+        {
+            "channels": [
+                {
+                    "color": "ff0000",
+                    "label": "test 1 channel"
+                }
+            ],
+            "label": "test 1",
+            "path": "./test.ome.tif"
+        },
+      {
+            "channels": [
+                {
+                    "color": "0000ff",
+                    "label": "test 2 channel"
+                }
+            ],
+            "label": "test 2",
+            "path": "./test.ome.tif"
+        }
+    ],
+    "rotation": 0,
+    "waypoints": [
+        {
+            "arrows": [],
+            "group": "group",
+            "masks": [
+                0
+            ],
+            "name": "name",
+            "overlays": [],
+            "pan": [
+                0.8851152525747915,
+                0.5
+            ],
+            "text": "description",
+            "zoom": 0.5541666666666667
+        }
+    ]
+}
