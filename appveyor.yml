@@ -32,6 +32,8 @@ install:
 
   - pip install -r requirements.txt
 
+  - conda install scikit-image
+
   - conda install zarr
 
 build_script:

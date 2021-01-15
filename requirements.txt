@@ -3,7 +3,6 @@ cython>=0.29.21
 flask_cors>=3.0.9
 pyinstaller>=4.1
 flask>=1.1.2
-scikit-image>=0.17.2
 waitress>=1.4.4
 openslide-python>=1.1.2
 pytest>=3.8.0
