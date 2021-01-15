@@ -53,7 +53,7 @@ from datetime import datetime
 import multiprocessing
 import logging
 import atexit
-import queue
+
 if os.name == 'nt':
     from ctypes import windll
 
