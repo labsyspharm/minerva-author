@@ -749,9 +749,9 @@ def api_render():
         data = request.json['groups']
         mask_data = request.json['masks']
         waypoint_data = request.json['waypoints']
+        create_story_base(G['out_name'], waypoint_data, mask_data)
         config_rows = list(make_rows(data))
         exhibit_config = make_exhibit_config(G['opener'], G['out_name'], request.json)
-        create_story_base(G['out_name'], waypoint_data, mask_data)
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
         G['out_yaml'] = out_yaml
