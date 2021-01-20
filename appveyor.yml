@@ -20,6 +20,10 @@ install:
   # The following adopts approaches suggested in the above links.
   - call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvars64.bat"
   - "set PATH=%MINICONDA%;%MINICONDA%\\Scripts;%PATH%"
+  - curl https://github.com/openslide/openslide-winbuild/releases/download/v20171122/openslide-win64-20171122.zip -L -o openslide.zip
+  - unzip openslide.zip
+  - move openslide-win64-20171122\bin\* src\
+  - git submodule update --init --recursive
   - conda config --set always_yes yes --set changeps1 no
   - conda config --add channels conda-forge
   - conda update -q conda
