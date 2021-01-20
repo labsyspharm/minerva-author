@@ -86,7 +86,6 @@ def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows,
             filename = '{}_{}_{}.{}'.format(level, tx, ty, EXT)
 
             for settings in config_rows:
-                print(settings)
 
                 group_dir = settings['Group Path'] 
                 if not (output_path / group_dir).exists():

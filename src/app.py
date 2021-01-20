@@ -227,11 +227,11 @@ class Opener:
                 tile = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
                 format = fmt if fmt else 'I;16'
 
-            if (tile.dtype != np.uint16):
-                if tile.dtype == np.uint8:
-                    tile = 255 * tile.astype(np.uint16)
-                else:
-                    tile = tile.astype(np.uint16)
+                if (tile.dtype != np.uint16):
+                    if tile.dtype == np.uint8:
+                        tile = 255 * tile.astype(np.uint16)
+                    else:
+                        tile = tile.astype(np.uint16)
 
             return Image.fromarray(tile, format)
 
@@ -281,6 +281,12 @@ class Opener:
             )):
                 num_channels = self.get_shape()[0]
                 tile = self.get_tifffile_tile(num_channels, level, tx, ty, int(marker), tile_size)
+                
+                if (tile.dtype != np.uint16):
+                    if tile.dtype == np.uint8:
+                        tile = 255 * tile.astype(np.uint16)
+                    else:
+                        tile = tile.astype(np.uint16)
 
                 if i == 0:
                     target = np.zeros(tile.shape + (3,), np.float32)
