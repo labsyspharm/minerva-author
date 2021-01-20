@@ -4,7 +4,6 @@ flask_cors>=3.0.9
 pyinstaller>=4.1
 flask>=1.1.2
 waitress>=1.4.4
-openslide-python>=1.1.2
 pytest>=3.8.0
 imagecodecs>=2020.5.30
 tifffile>=2020.12.4

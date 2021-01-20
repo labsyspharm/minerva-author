@@ -26,8 +26,6 @@ import numpy as np
 import imagecodecs
 from PIL import Image
 from matplotlib import colors
-from openslide import OpenSlide
-from openslide.deepzoom import DeepZoomGenerator
 from threading import Timer
 from flask import Flask
 from flask import jsonify
@@ -97,11 +95,8 @@ class Opener:
                 self.rgba_type = None
 
         else:
-            self.io = OpenSlide(self.path)
-            self.dz = DeepZoomGenerator(self.io, tile_size=1024, overlap=0, limit_bounds=True) 
+            print("openslide not supported")
             self.reader = 'openslide'
-            self.rgba = True
-            self.rgba_type = None
 
         print("RGB ", self.rgba)
         print("RGB type ", self.rgba_type)
@@ -139,8 +134,8 @@ class Opener:
             print((nx, ny))
             return (nx, ny)
         elif self.reader == 'openslide':
-            l = self.dz.level_count - 1 - level
-            return self.dz.level_tiles[l]
+            print('openslide not supported')
+            return (1, 1)
 
     def get_shape(self):
         if self.reader == 'tifffile':
@@ -155,16 +150,8 @@ class Opener:
             return (num_channels, num_levels, shape_x, shape_y)
 
         elif self.reader == 'openslide':
-
-            (width, height) = self.io.dimensions
-
-            def has_one_tile(counts):
-                return max(counts) == 1
-
-            small_levels = list(filter(has_one_tile, self.dz.level_tiles))
-            level_count = self.dz.level_count - len(small_levels) + 1
-
-            return (3, level_count, width, height)
+            print('openslide not supported')
+            return (3, 1, 1024, 1024)
 
     def read_tiles(self, level, channel_number, tx, ty, tilesize):
         ix = tx * tilesize
