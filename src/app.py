@@ -73,19 +73,28 @@ def tif_path_to_ome_path(path):
 class Opener:
 
     def __init__(self, path):
+        self.io = None
         self.warning = ''
         self.path = path
         self.tilesize = 1024
         ext = check_ext(path)
 
-        if ext == '.ome.tif' or ext == '.ome.tiff':
-            self.io = TiffFile(self.path, is_ome=False)
-            self.group = zarr.open(self.io.series[0].aszarr())
-            self.reader = 'tifffile'
-            self.ome_version = self._get_ome_version()
-            print("OME ", self.ome_version)
+        if ext in ['.ome.tif', '.ome.tiff', '.ome.zarr', '.zarr']:
+
+            self.reader = 'zarr'
+
+            if ext == '.ome.tif' or ext == '.ome.tiff':
+                self.io = TiffFile(self.path, is_ome=False)
+                self.group = zarr.open(self.io.series[0].aszarr(), mode='r')
+                self.ome_version = self._get_ome_version()
+                print("OME ", self.ome_version)
+            else:
+                self.group = zarr.open(self.path, mode='r')
+                if not hasattr(self.group[0], 'shape'):
+                    self.group = self.group[0]
+
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_tifffile_tile(num_channels, 0,0,0,0)
+            tile_0 = self.get_zarr_tile(num_channels, 0,0,0,0)
             if (num_channels == 3 and tile_0.dtype == 'uint8'):
                 self.rgba = True
                 self.rgba_type = '3 channel'
@@ -122,7 +131,8 @@ class Opener:
             return 5
 
     def close(self):
-        self.io.close()
+        if self.io is not None:
+            self.io.close()
 
     def is_rgba(self, rgba_type=None):
         if rgba_type is None:
@@ -131,7 +141,7 @@ class Opener:
             return self.rgba and rgba_type == self.rgba_type
 
     def get_level_tiles(self, level, tile_size):
-        if self.reader == 'tifffile':
+        if self.reader == 'zarr':
 
             # Negative indexing to support shape len 3 or len 2
             ny = int(np.ceil(self.group[level].shape[-2] / tile_size))
@@ -142,12 +152,22 @@ class Opener:
             l = self.dz.level_count - 1 - level
             return self.dz.level_tiles[l]
 
+    def get_raw_shape(self):
+        if self.reader == 'zarr':
+            return self.group[0].shape
+        elif self.reader == 'openslide':
+            return self.io.dimensions
+
     def get_shape(self):
-        if self.reader == 'tifffile':
+        if self.reader == 'zarr':
 
             num_levels = len(self.group)
             shape = self.group[0].shape
-            if len(shape) == 3:
+            if len(shape) == 5:
+                (len_time, num_channels, shape_z, shape_y, shape_x) = shape
+            elif len(shape) == 4:
+                (num_channels, shape_z, shape_y, shape_x) = shape
+            elif len(shape) == 3:
                 (num_channels, shape_y, shape_x) = shape
             else:
                 (shape_y, shape_x) = shape
@@ -170,23 +190,27 @@ class Opener:
         ix = tx * tilesize
         iy = ty * tilesize
 
-        num_channels = self.get_shape()[0]
+        n_dims = len(self.get_raw_shape())
         try:
-            if num_channels == 1:
+            if n_dims == 2:
                 tile = self.group[level][iy:iy+tilesize, ix:ix+tilesize]
-            else:
+            elif n_dims == 3:
                 tile = self.group[level][channel_number, iy:iy+tilesize, ix:ix+tilesize]
+            elif n_dims == 4:
+                tile = self.group[level][channel_number, 0, iy:iy+tilesize, ix:ix+tilesize]
+            elif n_dims == 5:
+                tile = self.group[level][0, channel_number, 0, iy:iy+tilesize, ix:ix+tilesize]
             tile = np.squeeze(tile)
             return tile
         except Exception as e:
             G['logger'].error(e)
             return None
 
-    def get_tifffile_tile(self, num_channels, level, tx, ty, channel_number, tilesize=None):
+    def get_zarr_tile(self, num_channels, level, tx, ty, channel_number, tilesize=None):
 
-        if self.reader == 'tifffile':
+        if self.reader == 'zarr':
 
-            self.tilesize = max(self.io.series[0].pages[0].chunks)
+            self.tilesize = max(self.group[0].chunks[1:])
 
             if (tilesize is None) and self.tilesize == 0:
                 # Warning... return untiled planes as all-black
@@ -212,19 +236,19 @@ class Opener:
 
     def get_tile(self, num_channels, level, tx, ty, channel_number, fmt=None):
         
-        if self.reader == 'tifffile':
+        if self.reader == 'zarr':
  
             if self.is_rgba('3 channel'):
-                tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0)
-                tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1)
-                tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2)
+                tile_0 = self.get_zarr_tile(num_channels, level, tx, ty, 0)
+                tile_1 = self.get_zarr_tile(num_channels, level, tx, ty, 1)
+                tile_2 = self.get_zarr_tile(num_channels, level, tx, ty, 2)
                 tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
                 tile[:, :, 0] = tile_0
                 tile[:, :, 1] = tile_1
                 tile[:, :, 2] = tile_2
                 format = 'I;8'
             else:
-                tile = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
+                tile = self.get_zarr_tile(num_channels, level, tx, ty, channel_number)
                 format = fmt if fmt else 'I;16'
 
                 if (tile.dtype != np.uint16):
@@ -241,12 +265,12 @@ class Opener:
             return img
 
     def save_tile(self, output_file, settings, tile_size, level, tx, ty, is_mask=False):
-        if self.reader == 'tifffile' and self.is_rgba('3 channel'):
+        if self.reader == 'zarr' and self.is_rgba('3 channel'):
 
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
-            tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1, tile_size)
-            tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2, tile_size)
+            tile_0 = self.get_zarr_tile(num_channels, level, tx, ty, 0, tile_size)
+            tile_1 = self.get_zarr_tile(num_channels, level, tx, ty, 1, tile_size)
+            tile_2 = self.get_zarr_tile(num_channels, level, tx, ty, 2, tile_size)
             tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
             tile[:,:,0] = tile_0
             tile[:,:,1] = tile_1
@@ -255,18 +279,18 @@ class Opener:
             img = Image.fromarray(tile, 'RGB')
             img.save(output_file, quality=85)
 
-        elif self.reader == 'tifffile' and self.is_rgba('1 channel'):
+        elif self.reader == 'zarr' and self.is_rgba('1 channel'):
 
             num_channels = self.get_shape()[0]
-            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+            tile = self.get_zarr_tile(num_channels, level, tx, ty, 0, tile_size)
 
             img = Image.fromarray(tile, 'RGB')
             img.save(output_file, quality=85)
 
-        elif self.reader == 'tifffile' and is_mask:
+        elif self.reader == 'zarr' and is_mask:
             color = settings['Color'][0]
             num_channels = self.get_shape()[0]
-            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+            tile = self.get_zarr_tile(num_channels, level, tx, ty, 0, tile_size)
             target = np.zeros(tile.shape + (4,), np.uint8)
             colorize_mask(
                 target, tile, colors.to_rgb(color)
@@ -274,13 +298,13 @@ class Opener:
             img = Image.frombytes('RGBA', target.T.shape[1:], target.tobytes())
             img.save(output_file, quality=85)
 
-        elif self.reader == 'tifffile' and not is_mask:
+        elif self.reader == 'zarr' and not is_mask:
             for i, (marker, color, start, end) in enumerate(zip(
                     settings['Channel Number'], settings['Color'],
                     settings['Low'], settings['High']
             )):
                 num_channels = self.get_shape()[0]
-                tile = self.get_tifffile_tile(num_channels, level, tx, ty, int(marker), tile_size)
+                tile = self.get_zarr_tile(num_channels, level, tx, ty, int(marker), tile_size)
                 
                 if (tile.dtype != np.uint16):
                     if tile.dtype == np.uint8:
