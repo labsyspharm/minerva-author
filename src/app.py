@@ -78,6 +78,7 @@ class Opener:
         self.path = path
         self.tilesize = 1024
         ext = check_ext(path)
+        self.missing_chunks = set()
 
         if ext in ['.ome.tif', '.ome.tiff', '.ome.zarr', '.zarr']:
 
@@ -86,12 +87,14 @@ class Opener:
             if ext == '.ome.tif' or ext == '.ome.tiff':
                 self.io = TiffFile(self.path, is_ome=False)
                 self.group = zarr.open(self.io.series[0].aszarr(), mode='r')
+                self.tilesize = max(self.group[0].chunks)
                 self.ome_version = self._get_ome_version()
                 print("OME ", self.ome_version)
             else:
                 self.group = zarr.open(self.path, mode='r')
                 if not hasattr(self.group[0], 'shape'):
                     self.group = self.group[0]
+                self.missing_chunks = self._get_missing_chunks()
 
             num_channels = self.get_shape()[0]
             tile_0 = self.get_zarr_tile(num_channels, 0,0,0,0)
@@ -114,6 +117,29 @@ class Opener:
 
         print("RGB ", self.rgba)
         print("RGB type ", self.rgba_type)
+
+    def _get_missing_chunks(self):
+        missing_chunks = set()
+        present_chunks = set()
+
+        for key in self.group.chunk_store.keys():
+            if '.z' in key:
+                continue
+            level = int(key.split('/')[-2])
+            ty, tx = [int(v) for v in key.split('/')[-1].split('.')[-2::]]
+            present_chunks.add((level, ty, tx))
+
+        for level in range(len(self.group)):
+            shape_x = self.group[level].shape[-1]
+            shape_y = self.group[level].shape[-2]
+            n_x = math.ceil(shape_x / self.tilesize)
+            n_y = math.ceil(shape_y / self.tilesize)
+            for tx in range(n_x):
+                for ty in range(n_y):
+                    if (level, ty, tx) not in present_chunks:
+                        missing_chunks.add((level, ty, tx))
+
+        return missing_chunks
 
     def _get_ome_version(self):
         try:
@@ -206,28 +232,36 @@ class Opener:
             G['logger'].error(e)
             return None
 
+    def is_missing_all(self, level, tx, ty, tilesize):
+
+        ix = tx * tilesize
+        iy = ty * tilesize
+
+        x_range = range(
+            math.floor(ix/self.tilesize),
+            math.ceil((ix+tilesize)/self.tilesize)
+        )
+        y_range = range(
+            math.floor(iy/self.tilesize),
+            math.ceil((iy+tilesize)/self.tilesize)
+        )
+
+        for self_tx in x_range:
+            for self_ty in y_range:
+                if (level, self_ty, self_tx) not in self.missing_chunks:
+                    return False
+
+        return True
+
+
     def get_zarr_tile(self, num_channels, level, tx, ty, channel_number, tilesize=None):
 
         if self.reader == 'zarr':
 
-            self.tilesize = max(self.group[0].chunks[1:])
+            if tilesize is None:
+                tilesize = self.tilesize
 
-            if (tilesize is None) and self.tilesize == 0:
-                # Warning... return untiled planes as all-black
-                self.tilesize = 1024
-                self.warning = f'Level {level} is not tiled. It will show as all-black.'
-                tile = np.zeros((1024, 1024), dtype=ifd.dtype)
-
-            elif (tilesize is not None) and self.tilesize == 0:
-                self.tilesize = tilesize
-                tile = self.read_tiles(level, channel_number, tx, ty, tilesize)
-
-            elif (tilesize is not None) and (self.tilesize != tilesize):
-                tile = self.read_tiles(level, channel_number, tx, ty, tilesize)
-
-            else:
-                self.tilesize = self.tilesize if self.tilesize else 1024
-                tile = self.read_tiles(level, channel_number, tx, ty, self.tilesize)
+            tile = self.read_tiles(level, channel_number, tx, ty, tilesize)
 
             if tile is None:
                 return None
@@ -299,6 +333,15 @@ class Opener:
             img.save(output_file, quality=85)
 
         elif self.reader == 'zarr' and not is_mask:
+
+            all_missing = (level, ty, tx) in self.missing_chunks
+            if (tile_size != self.tilesize):
+                all_missing = self.is_missing_all(level, tx, ty, tile_size)
+
+            # Refuse to save image if all zarr tiles are missing
+            if all_missing:
+                return
+
             for i, (marker, color, start, end) in enumerate(zip(
                     settings['Channel Number'], settings['Color'],
                     settings['Low'], settings['High']
@@ -579,13 +622,16 @@ def u16_image(channel, level, x, y):
     Returns: Tile image in png format
 
     """
+    img_io = None
 
     # Open the input file on the first request only
     if G['opener'] is None:
         open_input_file(G['in_file'])
 
-    img_io = render_tile(G['opener'], int(level),
-                         int(x), int(y), int(channel))
+    if (int(level), int(y), int(x)) not in G['opener'].missing_chunks:
+        img_io = render_tile(G['opener'], int(level),
+                int(x), int(y), int(channel))
+
     if img_io is None:
 
         response = make_response('Not found', 404)
