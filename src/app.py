@@ -772,8 +772,7 @@ def api_render():
             json_text = json.dumps(exhibit_config, ensure_ascii=False)
             wf.write(json_text)
 
-        render_color_tiles(G['opener'], G['out_dir'], 1024,
-                           len(G['channels']), config_rows, G['logger'],
+        render_color_tiles(G['opener'], G['out_dir'], 1024, config_rows, G['logger'],
                            progress_callback=render_progress_callback)
 
         mask_args = []

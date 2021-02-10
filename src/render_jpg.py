@@ -31,7 +31,7 @@ def composite_channel(target, image, color, range_min, range_max):
         target[:, :, i] += f_image * component
 
 
-def _calculate_total_tiles(opener, tile_size, num_levels, num_channels):
+def _calculate_total_tiles(opener, tile_size, num_levels):
     tiles = 0
     for level in range(num_levels):
         (nx, ny) = opener.get_level_tiles(level, tile_size)
@@ -39,7 +39,11 @@ def _calculate_total_tiles(opener, tile_size, num_levels, num_channels):
 
     return tiles
 
-def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows, logger, progress_callback=None):
+def _check_duplicate(group_path, settings, old_rows):
+    old_settings = next((row for row in old_rows if row['Group Path'] == group_path), {})
+    return settings == old_settings
+
+def render_color_tiles(opener, output_dir, tile_size, config_rows, logger, progress_callback=None):
     EXT = 'jpg'
 
     for settings in config_rows:
@@ -65,16 +69,16 @@ def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows,
     with open(config_path, 'w') as f:
         json.dump(config_rows, f)
 
-    if opener.reader == 'pytiff':
-        assert opener.io.number_of_pages % num_channels == 0, "Pyramid/channel mismatch"
-
     num_levels = opener.get_shape()[1]
 
-    total_tiles = _calculate_total_tiles(opener, tile_size, num_levels, num_channels)
+    total_tiles = _calculate_total_tiles(opener, tile_size, num_levels)
     progress = 0
 
     if num_levels < 2:
         logger.warning(f'Number of levels {num_levels} < 2')
+
+    group_dirs = {settings['Group Path']: settings for settings in config_rows}
+    is_up_to_date = {g: _check_duplicate(g, s, old_rows) for g, s in group_dirs.items()}
 
     for level in range(num_levels):
 
@@ -93,7 +97,7 @@ def render_color_tiles(opener, output_dir, tile_size, num_channels, config_rows,
                 output_file = str(output_path / group_dir / filename)
 
                 # Only save file if change in config rows
-                if not (os.path.exists(output_file) and config_rows == old_rows):
+                if not (os.path.exists(output_file) and is_up_to_date[group_dir]):
                     try:
                         opener.save_tile(output_file, settings, tile_size, level, tx, ty)
                     except AttributeError as e:
