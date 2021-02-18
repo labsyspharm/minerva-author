@@ -43,7 +43,7 @@ def _check_duplicate(group_path, settings, old_rows):
     old_settings = next((row for row in old_rows if row['Group Path'] == group_path), {})
     return settings == old_settings
 
-def render_color_tiles(opener, output_dir, tile_size, config_rows, logger, progress_callback=None):
+def render_color_tiles(opener, output_dir, tile_size, config_rows, logger, progress_callback=None, allow_cache=True):
     EXT = 'jpg'
 
     for settings in config_rows:
@@ -59,15 +59,17 @@ def render_color_tiles(opener, output_dir, tile_size, config_rows, logger, progr
     config_path = output_path / 'config.json'
     old_rows = []
 
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            try:
-                old_rows = json.load(f)
-            except json.decoder.JSONDecodeError as err:
-                print(err)
+    if allow_cache:
 
-    with open(config_path, 'w') as f:
-        json.dump(config_rows, f)
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                try:
+                    old_rows = json.load(f)
+                except json.decoder.JSONDecodeError as err:
+                    print(err)
+
+        with open(config_path, 'w') as f:
+            json.dump(config_rows, f)
 
     num_levels = opener.get_shape()[1]
 
@@ -78,7 +80,10 @@ def render_color_tiles(opener, output_dir, tile_size, config_rows, logger, progr
         logger.warning(f'Number of levels {num_levels} < 2')
 
     group_dirs = {settings['Group Path']: settings for settings in config_rows}
-    is_up_to_date = {g: _check_duplicate(g, s, old_rows) for g, s in group_dirs.items()}
+    is_up_to_date = {g: False for g, s in group_dirs.items()}
+
+    if allow_cache:
+        is_up_to_date = {g: _check_duplicate(g, s, old_rows) for g, s in group_dirs.items()}
 
     for level in range(num_levels):
 

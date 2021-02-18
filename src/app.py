@@ -647,6 +647,23 @@ def format_overlay(o):
         'height': o[3]
     }
 
+def make_waypoints_simple(d, mask_data):
+
+    for waypoint in d:
+        wp = {
+            'Name': waypoint['name'],
+            'Description': waypoint['text'],
+            'Arrows': list(map(format_arrow, waypoint['arrows'])),
+            'Overlays': list(map(format_overlay, waypoint['overlays'])),
+            'Group': waypoint['group'],
+            'Masks': [],
+            'ActiveMasks': [],
+            'Zoom': waypoint['zoom'],
+            'Pan': waypoint['pan'],
+        }
+
+        yield wp
+
 def make_waypoints(d, mask_data):
 
     vis_path_dict = deduplicate_data(d, 'data')
@@ -674,11 +691,12 @@ def make_waypoints(d, mask_data):
 
         yield wp
 
-def make_stories(d, mask_data):
+def make_stories(d, mask_data, simple=False):
+    wp_function = make_waypoints_simple if simple else make_waypoints
     return [{
         'Name': '',
         'Description': '',
-        'Waypoints': list(make_waypoints(d, mask_data))
+        'Waypoints': list(wp_function(d, mask_data))
     }]
 
 def make_mask_yaml(mask_data):
@@ -699,7 +717,7 @@ def make_group_path(groups, group):
     return  g_path + '_' + c_path
 
 
-def make_yaml(d):
+def make_groups(d):
     for group in d:
         yield {
             'Name': group['label'],
@@ -740,7 +758,7 @@ def make_exhibit_config(opener, out_name, json):
         'Layout': {'Grid': [['i0']]},
         'Stories': make_stories(waypoint_data, mask_data),
         'Masks': list(make_mask_yaml(mask_data)),
-        'Groups': list(make_yaml(data))
+        'Groups': list(make_groups(data))
     }
     return _config
 
