@@ -250,6 +250,19 @@ class Opener:
 
     def save_mask_tiles(self, filename, mask_params, logger, tile_size, level, tx, ty):
 
+        should_skip_tile = {}
+
+        for image_params in mask_params['images']:
+
+            output_file = str(image_params['out_path'] / filename)
+            should_skip = (os.path.exists(output_file) and image_params['is_up_to_date'])
+            should_skip_tile[output_file] = should_skip
+
+        if all(should_skip_tile.values()):
+            logger.warning(f'Not saving tile level {level} ty {ty} tx {tx}')
+            logger.warning(f'Every mask {filename} exists with same rendering settings')
+            return
+
         if self.reader == 'tifffile':
             num_channels = self.get_shape()[0]
             tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
@@ -257,9 +270,7 @@ class Opener:
             for image_params in mask_params['images']:
 
                 output_file = str(image_params['out_path'] / filename)
-                if (os.path.exists(output_file) and image_params['is_up_to_date']):
-                    logger.warning(f'Not saving tile level {level} ty {ty} tx {tx}')
-                    logger.warning(f'Path {output_file} exists with same rendering settings')
+                if should_skip_tile[output_file]:
                     continue
 
                 target = np.zeros(tile.shape + (4,), np.uint8)
