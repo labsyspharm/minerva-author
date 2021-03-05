@@ -539,11 +539,15 @@ def reload_all_mask_subsets(masks):
         mask_subsets = all_mask_subsets.get(mask['map_path'], {})
 
         # Support version 1.5.0 or lower
-        original_label = mask.get('original_label', mask.get('label'))
+        mask_label = mask.get('label')
+        default_label = mask.get('original_label')
+        default_label = default_label if default_label else mask_label
 
         for chan in mask['channels']:
-            original_label = chan.get('original_label', original_label)
+            original_label = chan.get('original_label')
+            original_label = original_label if original_label else default_label
             chan['ids'] = mask_subsets.get(original_label, [])
+            chan['original_label'] = original_label
 
     return masks
 
