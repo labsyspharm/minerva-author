@@ -254,8 +254,7 @@ class Opener:
 
         def get_empty_path(path):
             basename = os.path.splitext(path)[0]
-            return pathlib.Path(f'{basename}.tmp.txt')
-            return p.rename(p.with_suffix('.tmp.txt'))
+            return pathlib.Path(f'{basename}_tmp.txt')
 
         for image_params in mask_params['images']:
 
