@@ -20,7 +20,7 @@ def render_tile(opener, level, tx, ty, channel_number, fmt=None):
 
         (num_channels, num_levels, width, height) = opener.get_shape()
         tilesize = opener.tilesize
-    
+
         img_io = None
         if level < num_levels and channel_number < num_channels:
             if tx <= width // tilesize and ty <= height // tilesize:
@@ -55,44 +55,51 @@ def spike(image):
     buff[:,:,3][image != 0] = 1.0
     return buff
 
-def colorize_mask(target, image, color):
+def colorize_integer(integer):
+    return [
+        int(255*v) for v in hsv2rgba(spike(np.array([[integer]],dtype=np.uint32)))[0][0]
+    ][:3]
+
+def colorize_mask(target, image):
     ''' Render _image_ in pseudocolor into _target_
     Args:
         target: Numpy uint8 array containing RGBA composition target
         image: Numpy uint32 array of image to render and composite
-        color: Color as r, g, b float array, 0-1
     '''
-    hsv_buff = spike(image)
-    rgba_buff = hsv2rgba(hsv_buff)
+    rgba_buff = hsv2rgba(spike(image))
     target[:] = np.around(255 * rgba_buff).astype(np.uint8)
+    return target
 
-    # Manually set color for ID 1
-    uint8_color1 = tuple(np.uint8( color ) * 255)
-    target[image == 1] = uint8_color1 + (255,)
-
-def render_u32_tiles(opener, output_dir, tile_size, colors, logger, progress_callback=None):
+def render_u32_tiles(mask_params, tile_size, logger):
     EXT = 'png'
 
-    settings = {'Color': colors, 'Source': str(opener.path)}
+    opener = mask_params['opener']
+
     print('Processing:', str(opener.path))
 
-    output_path = pathlib.Path(output_dir)
+    for image_params in mask_params['images']:
 
-    if not output_path.exists():
-        output_path.mkdir(parents=True)
+        old_settings = {}
+        settings = image_params['settings']
 
-    config_path = output_path / 'config.json'
-    old_settings = {}
+        output_path = image_params['out_path']
 
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            try:
-                old_settings = json.load(f)
-            except json.decoder.JSONDecodeError as err:
-                print(err)
+        if not output_path.exists():
+            output_path.mkdir(parents=True)
 
-    with open(config_path, 'w') as f:
-        json.dump(settings, f)
+        config_path = output_path / 'config.json'
+
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                try:
+                    old_settings = json.load(f)
+                except json.decoder.JSONDecodeError as err:
+                    print(err)
+
+        with open(config_path, 'w') as f:
+            json.dump(settings, f)
+
+        image_params['is_up_to_date'] = settings == old_settings
 
     num_levels = opener.get_shape()[1]
 
@@ -109,18 +116,13 @@ def render_u32_tiles(opener, output_dir, tile_size, colors, logger, progress_cal
         for ty, tx in itertools.product(range(0, ny), range(0, nx)):
 
             filename = '{}_{}_{}.{}'.format(level, tx, ty, EXT)
-            output_file = str(output_path / filename)
 
-            # Only save file if change in config rows
-            if not (os.path.exists(output_file) and settings == old_settings):
-                try:
-                    opener.save_tile(output_file, settings, tile_size, level, tx, ty, is_mask=True)
-                except AttributeError as e:
-                    logger.error(f'{level} ty {ty} tx {tx}: {e}')
-            else:
-                logger.warning(f'Not saving tile level {level} ty {ty} tx {tx}')
-                logger.warning(f'Path {output_file} exists and config rows match {config_path}')
+            try:
+                opener.save_mask_tiles(filename, mask_params, logger, tile_size, level, tx, ty)
+            except AttributeError as e:
+                logger.error(f'{level} ty {ty} tx {tx}: {e}')
 
             progress += 1
-            if progress_callback is not None:
-                progress_callback(progress)
+            for image_params in mask_params['images']:
+                if image_params['progress'] is not None:
+                    image_params['progress'](progress)

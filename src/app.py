@@ -32,16 +32,17 @@ from threading import Timer
 from flask import Flask
 from flask import jsonify
 from flask import request
-from flask import send_file 
+from flask import send_file
 from flask import make_response
 from render_png import render_tile
 from render_png import colorize_mask
+from render_png import colorize_integer
 from render_png import render_u32_tiles
 from render_jpg import render_color_tiles
 from render_jpg import composite_channel
 from render_jpg import _calculate_total_tiles
 from storyexport import create_story_base, get_story_folders
-from storyexport import deduplicate_data, label_to_dir 
+from storyexport import deduplicate_data, label_to_dir
 from storyexport import mask_path_from_index
 from storyexport import mask_label_from_index
 from storyexport import group_path_from_label
@@ -75,6 +76,7 @@ class Opener:
     def __init__(self, path):
         self.warning = ''
         self.path = path
+        self.reader = None
         self.tilesize = 1024
         ext = check_ext(path)
 
@@ -96,15 +98,22 @@ class Opener:
                 self.rgba = False
                 self.rgba_type = None
 
-        else:
+            print("RGB ", self.rgba)
+            print("RGB type ", self.rgba_type)
+
+        elif ext == '.svs':
             self.io = OpenSlide(self.path)
-            self.dz = DeepZoomGenerator(self.io, tile_size=1024, overlap=0, limit_bounds=True) 
+            self.dz = DeepZoomGenerator(self.io, tile_size=1024, overlap=0, limit_bounds=True)
             self.reader = 'openslide'
             self.rgba = True
             self.rgba_type = None
 
-        print("RGB ", self.rgba)
-        print("RGB type ", self.rgba_type)
+            print("RGB ", self.rgba)
+            print("RGB type ", self.rgba_type)
+
+        else:
+            self.reader = None
+
 
     def _get_ome_version(self):
         try:
@@ -136,7 +145,6 @@ class Opener:
             # Negative indexing to support shape len 3 or len 2
             ny = int(np.ceil(self.group[level].shape[-2] / tile_size))
             nx = int(np.ceil(self.group[level].shape[-1] / tile_size))
-            print((nx, ny))
             return (nx, ny)
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level
@@ -211,9 +219,9 @@ class Opener:
             return tile
 
     def get_tile(self, num_channels, level, tx, ty, channel_number, fmt=None):
-        
+
         if self.reader == 'tifffile':
- 
+
             if self.is_rgba('3 channel'):
                 tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0)
                 tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1)
@@ -227,7 +235,7 @@ class Opener:
                 tile = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
                 format = fmt if fmt else 'I;16'
 
-                if (tile.dtype != np.uint16):
+                if (format == 'I;16' and tile.dtype != np.uint16):
                     if tile.dtype == np.uint8:
                         tile = 255 * tile.astype(np.uint16)
                     else:
@@ -240,7 +248,43 @@ class Opener:
             img = self.dz.get_tile(l, (tx, ty))
             return img
 
-    def save_tile(self, output_file, settings, tile_size, level, tx, ty, is_mask=False):
+    def save_mask_tiles(self, filename, mask_params, logger, tile_size, level, tx, ty):
+
+        if self.reader == 'tifffile':
+            num_channels = self.get_shape()[0]
+            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+
+            for image_params in mask_params['images']:
+
+                output_file = str(image_params['out_path'] / filename)
+                if (os.path.exists(output_file) and image_params['is_up_to_date']):
+                    logger.warning(f'Not saving tile level {level} ty {ty} tx {tx}')
+                    logger.warning(f'Path {output_file} exists with same rendering settings')
+                    continue
+
+                target = np.zeros(tile.shape + (4,), np.uint8)
+                skip_empty_tile = True
+
+                for channel in image_params['settings']['channels']:
+                    rgba_color = [ int(255 * i) for i in (colors.to_rgba(channel['color'])) ]
+                    ids = channel['ids']
+
+                    if len(ids) > 0:
+                        bool_tile = np.isin(tile, ids)
+                        # Signal that we must actually save the image
+                        if not skip_empty_tile or np.any(bool_tile):
+                            skip_empty_tile = False
+                        target[bool_tile] = rgba_color
+                    else:
+                        # Note, any channel without ids to map will override all others
+                        target = colorize_mask(target, tile)
+                        skip_empty_tile = False
+
+                if not skip_empty_tile:
+                    img = Image.frombytes('RGBA', target.T.shape[1:], target.tobytes())
+                    img.save(output_file, quality=85)
+
+    def save_tile(self, output_file, settings, tile_size, level, tx, ty):
         if self.reader == 'tifffile' and self.is_rgba('3 channel'):
 
             num_channels = self.get_shape()[0]
@@ -263,25 +307,14 @@ class Opener:
             img = Image.fromarray(tile, 'RGB')
             img.save(output_file, quality=85)
 
-        elif self.reader == 'tifffile' and is_mask:
-            color = settings['Color'][0]
-            num_channels = self.get_shape()[0]
-            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
-            target = np.zeros(tile.shape + (4,), np.uint8)
-            colorize_mask(
-                target, tile, colors.to_rgb(color)
-            )
-            img = Image.frombytes('RGBA', target.T.shape[1:], target.tobytes())
-            img.save(output_file, quality=85)
-
-        elif self.reader == 'tifffile' and not is_mask:
+        elif self.reader == 'tifffile':
             for i, (marker, color, start, end) in enumerate(zip(
                     settings['Channel Number'], settings['Color'],
                     settings['Low'], settings['High']
             )):
                 num_channels = self.get_shape()[0]
                 tile = self.get_tifffile_tile(num_channels, level, tx, ty, int(marker), tile_size)
-                
+
                 if (tile.dtype != np.uint16):
                     if tile.dtype == np.uint8:
                         tile = 255 * tile.astype(np.uint16)
@@ -339,9 +372,9 @@ def reset_globals():
         'save_progress': {},
         'save_progress_max': {}
     }
-    _g['logger'].setLevel(logging.DEBUG)
+    _g['logger'].setLevel(logging.INFO)
     ch = logging.StreamHandler()
-    ch.setLevel(logging.DEBUG)
+    ch.setLevel(logging.INFO)
     ch.setFormatter(FORMATTER)
     _g['logger'].addHandler(ch)
     return _g
@@ -370,7 +403,9 @@ def open_input_file(path):
     global G
     tiff_lock.acquire()
     if G['opener'] is None and path is not None:
-        G['opener'] = Opener(path)
+        opener = Opener(path)
+        if opener.reader is not None:
+            G['opener'] = Opener(path)
     tiff_lock.release()
 
 def make_mask_opener(path):
@@ -467,12 +502,18 @@ def root():
 @cross_origin()
 @nocache
 def out_story(path):
-    if G['out_yaml'] is None:
+
+    not_valid = (G['out_yaml'] is None)
+
+    out_dir = os.path.dirname(G['out_yaml'] or '')
+    out_file = os.path.join(out_dir, path)
+
+    if not_valid or not os.path.exists(out_file):
         response = make_response('Not found', 404)
         response.mimetype = "text/plain"
         return response
-    out_dir = os.path.dirname(G['out_yaml'])
-    return send_file(os.path.join(out_dir, path))
+
+    return send_file(out_file)
 
 
 @app.route('/api/validate/u32/<key>')
@@ -505,6 +546,54 @@ def u32_validate(key):
         "path": opener.path if isinstance(opener, Opener) else ''
     })
 
+
+@app.route('/api/mask_subsets/<key>')
+@cross_origin()
+@nocache
+def mask_subsets(key):
+    """
+    Returns the dictionary of mask subsets
+    Args:
+        key: URL-escaped path to mask group csv file
+
+    Returns: Dictionary mapping mask subsets to cell ids
+
+    """
+    path = unquote(key)
+    mask_subsets = {}
+
+    if not os.path.exists(path):
+        response = make_response('Not found', 404)
+        response.mimetype = "text/plain"
+        return response
+
+    with open(path) as cf:
+        for row in csv.DictReader(cf):
+            try:
+                cell_id = int(row.get('CellID', None))
+                if cell_id in [None, '']:
+                    print(f'Empty CellID')
+                    continue
+            except ValueError as e:
+                print(f'Cannot parse CellID "{cell_id}" as an integer')
+                continue
+
+            cell_state = row.get('State', None)
+            if cell_state in [None, '']:
+                print(f'Empty State for CellID "{cell_id}"')
+                continue
+
+            mask_group = mask_subsets.get(cell_state, set())
+            mask_group.add(cell_id)
+
+            mask_subsets[cell_state] = mask_group
+
+    mask_subsets = [ [k, sorted(v)] for (k,v) in mask_subsets.items() ]
+    return jsonify({
+        'mask_subsets': mask_subsets,
+        'subset_colors': [ colorize_integer(v[0]) for [k,v] in mask_subsets ]
+    })
+
 @app.route('/api/u32/<key>/<level>_<x>_<y>.png')
 @cross_origin()
 @nocache
@@ -530,13 +619,13 @@ def u32_image(key, level, x, y):
     opener = get_mask_opener(path)
     if isinstance(opener, Opener):
         img_io = render_tile(opener, int(level),
-                            int(x), int(y), 0, fmt='RGBA')
+                        int(x), int(y), 0, 'RGBA')
 
     if img_io is None:
         response = make_response('Not found', 404)
         response.mimetype = "text/plain"
         return response
- 
+
     return send_file(img_io, mimetype='image/png')
 
 
@@ -567,7 +656,7 @@ def u16_image(channel, level, x, y):
         response = make_response('Not found', 404)
         response.mimetype = "text/plain"
         return response
- 
+
     return send_file(img_io, mimetype='image/png')
 
 @app.route('/api/out/<path:path>')
@@ -582,7 +671,7 @@ def out_image(path):
 @nocache
 def api_save():
     """
-    Saves minerva-author project information in dat-file.
+    Saves minerva-author project information in json file.
     Returns: OK on success
 
     """
@@ -606,7 +695,7 @@ def api_save():
             json.dump(data, out_file)
 
         return 'OK'
-    
+
 
 def render_progress_callback(current, maximum, key='default'):
     G['save_progress'][key] = current
@@ -615,6 +704,7 @@ def render_progress_callback(current, maximum, key='default'):
 def create_progress_callback(maximum, key='default'):
     def progress_callback(current):
         render_progress_callback(current, maximum, key)
+    progress_callback(0)
     return progress_callback
 
 @app.route('/api/render/progress', methods=['GET'])
@@ -730,7 +820,7 @@ def make_rows(d):
     for group in d:
         channels = group['channels']
         yield {
-            'Group Path': make_group_path(d, group), 
+            'Group Path': make_group_path(d, group),
             'Channel Number': [str(c['id']) for c in channels],
             'Low': [int(65535 * c['min']) for c in channels],
             'High': [int(65535 * c['max']) for c in channels],
@@ -790,31 +880,47 @@ def api_render():
             json_text = json.dumps(exhibit_config, ensure_ascii=False)
             wf.write(json_text)
 
-        render_color_tiles(G['opener'], G['out_dir'], 1024, config_rows, G['logger'],
-                           progress_callback=render_progress_callback)
+        all_mask_params = {}
 
-        mask_args = []
-        for (i,mask) in enumerate(mask_data):
+        for (i, mask) in enumerate(mask_data):
+
+            mask_params = {}
             mask_path = mask['path']
-            if mask_path not in G['mask_openers']:
-                open_input_mask(mask_path, convert=False)
-            mask_opener = get_mask_opener(mask_path)
-            if isinstance(mask_opener, Opener):
+
+            if mask_path in all_mask_params:
+                mask_params = all_mask_params[mask_path]
+            else:
+                if mask_path not in G['mask_openers']:
+                    open_input_mask(mask_path, convert=False)
+                mask_params['images'] = []
+                mask_params['opener'] = get_mask_opener(mask_path)
+
+            if isinstance(mask_params['opener'], Opener):
+                mask_opener = mask_params['opener']
                 num_levels = mask_opener.get_shape()[1]
-                mask_total = _calculate_total_tiles(mask_opener, 1024, num_levels, 1)
-                mask_args.append({
-                    'opener': mask_opener,
-                    'out_dir': mask_path_from_index(mask_data, i, out_dir),
-                    'colors': ['#'+c['color'] for c in mask['channels']],
-                    'progress': create_progress_callback(mask_total, i)
+                mask_total = _calculate_total_tiles(mask_opener, 1024, num_levels)
+                mask_params['images'].append({
+                    'settings': {
+                        'channels': [{
+                            'ids': c['ids'],
+                            'color': '#'+c['color']
+                        } for c in mask['channels']],
+                        'source': str(mask_path)
+                    },
+                    'progress': create_progress_callback(mask_total, i),
+                    'out_path': pathlib.Path(mask_path_from_index(mask_data, i, out_dir))
                 })
+                all_mask_params[mask_path] = mask_params
             else:
                 print(f'Skipping render of {mask_path}')
 
-        for m_args in mask_args:
-            render_u32_tiles(m_args['opener'], m_args['out_dir'],
-                            1024, m_args['colors'], G['logger'],
-                            progress_callback=m_args['progress'])
+        # Render all uint16 image channels
+        render_color_tiles(G['opener'], G['out_dir'], 1024, config_rows, G['logger'],
+                           progress_callback=render_progress_callback)
+
+        # Render all uint32 segmentation masks
+        for mask_params in all_mask_params.values():
+            render_u32_tiles(mask_params, 1024, G['logger'])
 
         return 'OK'
 
@@ -826,11 +932,15 @@ def api_import_groups():
         data = request.json
         input_file = pathlib.Path(data['filepath'])
         if not os.path.exists(input_file):
-            return api_error(404, 'Dat file not found: ' + str(input_file))
+            return api_error(404, 'File not found: ' + str(input_file))
 
         if (input_file.suffix == '.dat'):
             saved = pickle.load( open( input_file, "rb" ) )
             G['groups'] = saved['groups']
+        else:
+            with open(input_file) as json_file:
+                saved = json.load(json_file)
+                G['groups'] = saved['groups']
 
         return jsonify({
             'groups': G['groups']
@@ -860,11 +970,13 @@ def api_import():
     if request.method == 'POST':
         chanLabel = {}
         data = request.form
+        default_out_name = 'out'
         input_file = pathlib.Path(data['filepath'])
         if not os.path.exists(input_file):
             return api_error(404, 'Image file not found: ' + str(input_file))
 
         if (input_file.suffix == '.dat' or input_file.suffix == '.json'):
+            default_out_name = input_file.stem
             if input_file.suffix == '.dat':
                 saved = pickle.load( open( input_file, "rb" ) )
             else:
@@ -893,9 +1005,9 @@ def api_import():
         else:
             csv_file = pathlib.Path(data['csvpath'])
 
-        out_name = label_to_dir(data['dataset'], empty='out')
+        out_name = label_to_dir(data['dataset'], empty=default_out_name)
         if out_name == '':
-            out_name = 'out'
+            out_name = default_out_name
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name)
 
@@ -917,7 +1029,7 @@ def api_import():
             print (e)
             return api_error(500, 'Invalid tiff file')
 
-        def yield_labels(num_channels): 
+        def yield_labels(num_channels):
             label_num = 0
             if str(csv_file) != '.':
                 with open(csv_file) as cf:
@@ -937,7 +1049,7 @@ def api_import():
             return api_error(500, "Error in opening marker csv file")
 
         fh = logging.FileHandler(str(out_log))
-        fh.setLevel(logging.DEBUG)
+        fh.setLevel(logging.INFO)
         fh.setFormatter(FORMATTER)
         G['logger'].addHandler(fh)
 
@@ -945,7 +1057,7 @@ def api_import():
             G['out_yaml'] = str(out_yaml)
             G['out_dat'] = str(out_dat)
             G['out_dir'] = str(out_dir)
-            G['out_name'] = label_to_dir(out_name, empty='out')
+            G['out_name'] = str(out_name)
             G['in_file'] = str(input_file)
             G['csv_file'] = str(csv_file)
             G['channels'] = labels

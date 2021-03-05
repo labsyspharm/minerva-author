@@ -96,7 +96,7 @@ def render_color_tiles(opener, output_dir, tile_size, config_rows, logger, progr
 
             for settings in config_rows:
 
-                group_dir = settings['Group Path'] 
+                group_dir = settings['Group Path']
                 if not (output_path / group_dir).exists():
                     (output_path / group_dir).mkdir(parents=True)
                 output_file = str(output_path / group_dir / filename)
@@ -109,7 +109,7 @@ def render_color_tiles(opener, output_dir, tile_size, config_rows, logger, progr
                         logger.error(f'{level} ty {ty} tx {tx}: {e}')
                 else:
                     logger.warning(f'Not saving tile level {level} ty {ty} tx {tx}')
-                    logger.warning(f'Path {output_file} exists and config rows match {config_path}')
+                    logger.warning(f'Path {output_file} exists with same rendering settings')
 
                 progress += 1
                 if progress_callback is not None:
