@@ -252,10 +252,16 @@ class Opener:
 
         should_skip_tile = {}
 
+        def get_empty_path(path):
+            basename = os.path.splitext(path)[0]
+            return pathlib.Path(f'{basename}.tmp.txt')
+            return p.rename(p.with_suffix('.tmp.txt'))
+
         for image_params in mask_params['images']:
 
             output_file = str(image_params['out_path'] / filename)
-            should_skip = (os.path.exists(output_file) and image_params['is_up_to_date'])
+            path_exists = os.path.exists(output_file) or os.path.exists(get_empty_path(output_file))
+            should_skip = path_exists and image_params['is_up_to_date']
             should_skip_tile[output_file] = should_skip
 
         if all(should_skip_tile.values()):
@@ -291,7 +297,12 @@ class Opener:
                         target = colorize_mask(target, tile)
                         skip_empty_tile = False
 
-                if not skip_empty_tile:
+                if skip_empty_tile:
+                    empty_file = get_empty_path(output_file)
+                    if not os.path.exists(empty_file):
+                        with open(empty_file, 'w') as fp: 
+                            pass
+                else:
                     img = Image.frombytes('RGBA', target.T.shape[1:], target.tobytes())
                     img.save(output_file, quality=85)
 
@@ -319,6 +330,7 @@ class Opener:
             img.save(output_file, quality=85)
 
         elif self.reader == 'tifffile':
+            target = None
             for i, (marker, color, start, end) in enumerate(zip(
                     settings['Channel Number'], settings['Color'],
                     settings['Low'], settings['High']
@@ -332,17 +344,18 @@ class Opener:
                     else:
                         tile = tile.astype(np.uint16)
 
-                if i == 0:
+                if i == 0 or target is None:
                     target = np.zeros(tile.shape + (3,), np.float32)
 
                 composite_channel(
                     target, tile, colors.to_rgb(color), float(start), float(end)
                 )
 
-            np.clip(target, 0, 1, out=target)
-            target_u8 = (target * 255).astype(np.uint8)
-            img = Image.frombytes('RGB', target.T.shape[1:], target_u8.tobytes())
-            img.save(output_file, quality=85)
+            if target is not None:
+                np.clip(target, 0, 1, out=target)
+                target_u8 = (target * 255).astype(np.uint8)
+                img = Image.frombytes('RGB', target.T.shape[1:], target_u8.tobytes())
+                img.save(output_file, quality=85)
 
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level
