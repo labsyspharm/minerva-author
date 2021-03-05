@@ -481,6 +481,62 @@ def nocache(view):
 
     return update_wrapper(no_cache, view)
 
+def load_mask_subsets(path):
+    mask_subsets = {}
+    with open(path) as cf:
+        for row in csv.DictReader(cf):
+            try:
+                cell_id = int(row.get('CellID', None))
+                if cell_id in [None, '']:
+                    print(f'Empty CellID')
+                    continue
+            except ValueError as e:
+                print(f'Cannot parse CellID "{cell_id}" as an integer')
+                continue
+
+            cell_state = row.get('State', None)
+            if cell_state in [None, '']:
+                print(f'Empty State for CellID "{cell_id}"')
+                continue
+
+            mask_group = mask_subsets.get(cell_state, set())
+            mask_group.add(cell_id)
+
+            mask_subsets[cell_state] = mask_group
+
+    return {
+        k: sorted(v) for (k,v) in mask_subsets.items()
+    }
+
+def reload_all_mask_subsets(masks):
+    all_mask_subsets = {}
+
+    def is_mask_ok(mask):
+        return 'map_path' in mask and 'channels' in mask
+
+    for mask in masks:
+        if is_mask_ok(mask):
+            all_mask_subsets[mask['map_path']] = {}
+
+    for map_path in all_mask_subsets:
+        all_mask_subsets[map_path] = load_mask_subsets(map_path)
+
+    for mask in masks:
+        if not is_mask_ok(mask):
+            continue
+
+        mask_subsets = all_mask_subsets.get(mask['map_path'], {})
+
+        # Support version 1.5.0 or lower
+        original_label = mask.get('original_label', mask.get('label'))
+
+        for chan in mask['channels']:
+            original_label = chan.get('original_label', original_label)
+            chan['ids'] = mask_subsets.get(original_label, [])
+
+    return masks
+
+
 @app.route('/')
 def root():
     """
@@ -560,35 +616,14 @@ def mask_subsets(key):
 
     """
     path = unquote(key)
-    mask_subsets = {}
 
     if not os.path.exists(path):
         response = make_response('Not found', 404)
         response.mimetype = "text/plain"
         return response
 
-    with open(path) as cf:
-        for row in csv.DictReader(cf):
-            try:
-                cell_id = int(row.get('CellID', None))
-                if cell_id in [None, '']:
-                    print(f'Empty CellID')
-                    continue
-            except ValueError as e:
-                print(f'Cannot parse CellID "{cell_id}" as an integer')
-                continue
-
-            cell_state = row.get('State', None)
-            if cell_state in [None, '']:
-                print(f'Empty State for CellID "{cell_id}"')
-                continue
-
-            mask_group = mask_subsets.get(cell_state, set())
-            mask_group.add(cell_id)
-
-            mask_subsets[cell_state] = mask_group
-
-    mask_subsets = [ [k, sorted(v)] for (k,v) in mask_subsets.items() ]
+    mask_subsets = load_mask_subsets(path)
+    mask_subsets = [ [k, v] for (k,v) in mask_subsets.items() ]
     return jsonify({
         'mask_subsets': mask_subsets,
         'subset_colors': [ colorize_integer(v[0]) for [k,v] in mask_subsets ]
@@ -666,6 +701,20 @@ def out_image(path):
     image_path = os.path.join(G['out_dir'], path)
     return send_file(image_path, mimetype='image/jpeg')
 
+def make_saved_chan(chan):
+    # We consider ids too large to store
+    return {k:v for (k,v) in chan.items() if k != 'ids'}
+
+def make_saved_mask(mask):
+    new_mask = {k:v for (k,v) in mask.items() if k != 'channels'}
+    new_mask['channels'] = list(map(make_saved_chan, mask.get('channels', [])))
+    return new_mask
+
+def make_saved_copy(data):
+    new_copy = {k:v for (k,v) in data.items() if k != 'masks'}
+    new_copy['masks'] = list(map(make_saved_mask, data.get('masks', [])))
+    return new_copy
+
 @app.route('/api/save', methods=['POST'])
 @cross_origin()
 @nocache
@@ -692,10 +741,9 @@ def api_save():
         G['out_log'] = out_log
 
         with open(G['out_dat'], 'w') as out_file:
-            json.dump(data, out_file)
+            json.dump(make_saved_copy(data), out_file)
 
         return 'OK'
-
 
 def render_progress_callback(current, maximum, key='default'):
     G['save_progress'][key] = current
@@ -990,15 +1038,19 @@ def api_import():
                     return api_error(404, 'Marker csv file not found: ' + str(csv_file))
             else:
                 csv_file = pathlib.Path(saved['csv_file'])
-            G['sample_info'] = saved['sample_info']
+            if 'sample_info' in saved:
+                G['sample_info'] = saved['sample_info']
             try:
                 G['sample_info']['rotation']
             except KeyError:
                 G['sample_info']['rotation'] = 0
 
+            if 'masks' in saved:
+                # This step could take up to a minute
+                G['masks'] = reload_all_mask_subsets(saved['masks'])
+
             G['waypoints'] = saved['waypoints']
             G['groups'] = saved['groups']
-            G['masks'] = saved['masks']
             for group in saved['groups']:
                 for chan in group['channels']:
                     chanLabel[str(chan['id'])] = chan['label']
