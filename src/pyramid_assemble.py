@@ -9,7 +9,6 @@ import pathlib
 import struct
 import itertools
 import uuid
-import psutil
 import multiprocessing
 import concurrent.futures
 import numpy as np
@@ -141,7 +140,7 @@ def main(in_paths, out_path, is_mask, pixel_size):
     if hasattr(os, 'sched_getaffinity'):
         num_workers = len(os.sched_getaffinity(0))
     else:
-        num_workers = psutil.cpu_count()
+        num_workers = multiprocessing.cpu_count()
     print(f"Using {num_workers} worker threads based on detected CPU count.")
     print()
 
