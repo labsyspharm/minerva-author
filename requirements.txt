@@ -1,5 +1,5 @@
 numpy>=1.19.4
-psutil>=5.6.7
+psutil==5.6.7
 cython>=0.29.21
 flask_cors>=3.0.9
 pyinstaller>=4.1
