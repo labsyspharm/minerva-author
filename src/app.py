@@ -79,6 +79,7 @@ class Opener:
         self.reader = None
         self.tilesize = 1024
         ext = check_ext(path)
+        self.default_dtype = np.uint16
 
         if ext == '.ome.tif' or ext == '.ome.tiff':
             self.io = TiffFile(self.path, is_ome=False)
@@ -88,6 +89,9 @@ class Opener:
             print("OME ", self.ome_version)
             num_channels = self.get_shape()[0]
             tile_0 = self.get_tifffile_tile(num_channels, 0,0,0,0)
+            if tile_0 is not None:
+                self.default_dtype = tile_0.dtype
+
             if (num_channels == 3 and tile_0.dtype == 'uint8'):
                 self.rgba = True
                 self.rgba_type = '3 channel'
@@ -107,6 +111,7 @@ class Opener:
             self.reader = 'openslide'
             self.rgba = True
             self.rgba_type = None
+            self.default_dtype = np.uint8
 
             print("RGB ", self.rgba)
             print("RGB type ", self.rgba_type)
@@ -200,7 +205,7 @@ class Opener:
                 # Warning... return untiled planes as all-black
                 self.tilesize = 1024
                 self.warning = f'Level {level} is not tiled. It will show as all-black.'
-                tile = np.zeros((1024, 1024), dtype=ifd.dtype)
+                tile = np.zeros((1024, 1024), dtype=self.default_dtype)
 
             elif (tilesize is not None) and self.tilesize == 0:
                 self.tilesize = tilesize
@@ -214,7 +219,9 @@ class Opener:
                 tile = self.read_tiles(level, channel_number, tx, ty, self.tilesize)
 
             if tile is None:
-                return None
+                if tilesize is None:
+                    tilesize = self.tilesize if self.tilesize else 1024
+                return np.zeros((tilesize, tilesize), dtype=self.default_dtype)
 
             return tile
 
@@ -472,7 +479,6 @@ def open_input_mask(path, convert=False):
         ome_path = tif_path_to_ome_path(path)
         convertable = os.path.exists(path) and not os.path.exists(ome_path)
         if convert and convertable:
-            print(f'Submitting for conversion: {path}')
             executor = G['import_pool'].submit(convert_mask, path)
         elif os.path.exists(ome_path):
             opener = make_mask_opener(ome_path)
