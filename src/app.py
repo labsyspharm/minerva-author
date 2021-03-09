@@ -6,7 +6,7 @@ from numcodecs import compat_ext # Needed for pyinstaller
 from numcodecs import blosc # Needed for pyinstaller
 from urllib.parse import unquote
 from pyramid_assemble import main as make_ome
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 import pathlib
 import re
 import string
@@ -383,7 +383,7 @@ def reset_globals():
         'out_yaml': None,
         'out_log': None,
         'logger': logging.getLogger('app'),
-        'import_pool': ProcessPoolExecutor(max_workers=1),
+        'import_pool': ThreadPoolExecutor(max_workers=1),
         'sample_info': {
             'rotation': 0,
             'name': '',
