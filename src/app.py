@@ -472,6 +472,7 @@ def convert_mask(path):
 def open_input_mask(path, convert=False):
     global G
     opener = None
+    invalid = True
     ext = check_ext(path)
     if ext == '.ome.tif' or ext == '.ome.tiff':
         opener = make_mask_opener(path)
@@ -483,10 +484,15 @@ def open_input_mask(path, convert=False):
         elif os.path.exists(ome_path):
             opener = make_mask_opener(ome_path)
             path = ome_path
+        invalid = False
+
     if isinstance(opener, Opener):
         mask_lock.acquire()
         G['mask_openers'][path] = opener
         mask_lock.release()
+        return False
+
+    return invalid
 
 def get_mask_opener(path):
     opener = None
@@ -625,7 +631,7 @@ def u32_validate(key):
 
     # Open the input file on the first request only
     if path not in G['mask_openers']:
-        open_input_mask(path, convert=True)
+        invalid = open_input_mask(path, convert=True)
 
     opener = get_mask_opener(path)
 
