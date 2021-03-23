@@ -45,6 +45,7 @@ install:
   - copy "%CONDA_PREFIX%\Library\bin\libssl-1_1-x64.dll" "%CONDA_PREFIX%\DLLs\libssl-1_1-x64.dll"
 
 build_script:
+  - dir "%CONDA_PREFIX%"
   - dir "%CONDA_PREFIX%\lib\python%PYTHON_VERSION%"
   - dir "%CONDA_PREFIX%\lib\python%PYTHON_VERSION%\site-packages\xmlschema"
   - dir "%CONDA_PREFIX%\lib\python%PYTHON_VERSION%\site-packages\xmlschema\schemas"
