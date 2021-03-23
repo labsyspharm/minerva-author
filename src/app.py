@@ -1160,6 +1160,9 @@ def api_import():
 
         if (loading_saved_file):
             default_out_name = input_file.stem
+            # Handle extracting the actual stem from .story.json files
+            if (pathlib.Path(default_out_name).suffix in ['.story']):
+                default_out_name = pathlib.Path(default_out_name).stem
             # autosave_logic should be "ask", "skip", or "load"
             autosave_logic = data.get("autosave_logic", "skip")
             autosave_error = autosave_logic == "ask"
