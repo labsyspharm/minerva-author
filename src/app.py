@@ -89,7 +89,7 @@ class Opener:
             self.ome_version = self._get_ome_version()
             print("OME ", self.ome_version)
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_tifffile_tile(num_channels, 0,0,0,0)
+            tile_0 = self.get_tifffile_tile(num_channels, 0,0,0,0, 1024)
             if tile_0 is not None:
                 self.default_dtype = tile_0.dtype
 
@@ -175,15 +175,20 @@ class Opener:
             return self.dz.level_tiles[l]
 
     def get_shape(self):
-        if self.reader == 'tifffile':
-
-            num_levels = len(self.group)
-            shape = self.group[0].shape
-            if len(shape) == 3:
-                (num_channels, shape_y, shape_x) = shape
+        def parse_shape(shape):
+            if len(shape) >= 3:
+                (num_channels, shape_y, shape_x) = shape[-3:]
             else:
                 (shape_y, shape_x) = shape
                 num_channels = 1
+
+            return (num_channels, shape_x, shape_y)
+
+        if self.reader == 'tifffile':
+
+            (num_channels, shape_x, shape_y) = parse_shape(self.group[0].shape)
+            all_levels = [parse_shape(v.shape) for v in self.group.values()]
+            num_levels = len([shape for shape in all_levels if max(shape[1:]) >= 1024])
             return (num_channels, num_levels, shape_x, shape_y)
 
         elif self.reader == 'openslide':
@@ -214,32 +219,13 @@ class Opener:
             G['logger'].error(e)
             return None
 
-    def get_tifffile_tile(self, num_channels, level, tx, ty, channel_number, tilesize=None):
+    def get_tifffile_tile(self, num_channels, level, tx, ty, channel_number, tilesize=1024):
 
         if self.reader == 'tifffile':
 
-            self.tilesize = max(self.io.series[0].pages[0].chunks)
-
-            if (tilesize is None) and self.tilesize == 0:
-                # Warning... return untiled planes as all-black
-                self.tilesize = 1024
-                self.warning = f'Level {level} is not tiled. It will show as all-black.'
-                tile = np.zeros((1024, 1024), dtype=self.default_dtype)
-
-            elif (tilesize is not None) and self.tilesize == 0:
-                self.tilesize = tilesize
-                tile = self.read_tiles(level, channel_number, tx, ty, tilesize)
-
-            elif (tilesize is not None) and (self.tilesize != tilesize):
-                tile = self.read_tiles(level, channel_number, tx, ty, tilesize)
-
-            else:
-                self.tilesize = self.tilesize if self.tilesize else 1024
-                tile = self.read_tiles(level, channel_number, tx, ty, self.tilesize)
+            tile = self.read_tiles(level, channel_number, tx, ty, tilesize)
 
             if tile is None:
-                if tilesize is None:
-                    tilesize = self.tilesize if self.tilesize else 1024
                 return np.zeros((tilesize, tilesize), dtype=self.default_dtype)
 
             return tile
@@ -249,25 +235,29 @@ class Opener:
         if self.reader == 'tifffile':
 
             if self.is_rgba('3 channel'):
-                tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0)
-                tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1)
-                tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2)
+                tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0, 1024)
+                tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1, 1024)
+                tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2, 1024)
                 tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
                 tile[:, :, 0] = tile_0
                 tile[:, :, 1] = tile_1
                 tile[:, :, 2] = tile_2
-                format = 'I;8'
+                _format = 'I;8'
             else:
-                tile = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number)
-                format = fmt if fmt else 'I;16'
+                tile = self.get_tifffile_tile(num_channels, level, tx, ty, channel_number, 1024)
+                _format = fmt if fmt else 'I;16'
 
-                if (format == 'I;16' and tile.dtype != np.uint16):
+                if (_format == 'RGBA' and tile.dtype != np.uint32):
+                    tile = tile.astype(np.uint32)
+
+                if (_format == 'I;16' and tile.dtype != np.uint16):
                     if tile.dtype == np.uint8:
                         tile = 255 * tile.astype(np.uint16)
                     else:
-                        tile = tile.astype(np.uint16)
+                        # TODO: real support for uint32, signed values, and floats
+                        tile = np.clip(tile, 0, 65535).astype(np.uint16)
 
-            return Image.fromarray(tile, format)
+            return Image.fromarray(tile, _format)
 
         elif self.reader == 'openslide':
             l = self.dz.level_count - 1 - level

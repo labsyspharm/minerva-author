@@ -64,7 +64,7 @@ def colorize_mask(target, image):
     ''' Render _image_ in pseudocolor into _target_
     Args:
         target: Numpy uint8 array containing RGBA composition target
-        image: Numpy uint32 array of image to render and composite
+        image: Numpy integer array of image to render and composite
     '''
     rgba_buff = hsv2rgba(spike(image))
     target[:] = np.around(255 * rgba_buff).astype(np.uint8)
