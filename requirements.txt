@@ -1,5 +1,6 @@
 numpy>=1.19.4
 cython>=0.29.21
+ome_types>=0.2.4
 flask_cors>=3.0.9
 pyinstaller>=4.1
 flask>=1.1.2

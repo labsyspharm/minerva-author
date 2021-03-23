@@ -24,7 +24,7 @@ def test_ome_tif_rendered_output():
             ]
         }
     ]
-    render_color_tiles(opener, output_dir="tmp", tile_size=1024, num_channels=3, config_rows=groups, logger=logger, progress_callback=None)
+    render_color_tiles(opener, output_dir="tmp", tile_size=1024, config_rows=groups, logger=logger, progress_callback=None)
 
     filename = os.path.join("tmp", group_dir, "1_0_0.jpg")
     img = io.imread(filename)

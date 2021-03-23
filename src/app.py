@@ -7,6 +7,7 @@ from numcodecs import blosc # Needed for pyinstaller
 from urllib.parse import unquote
 from pyramid_assemble import main as make_ome
 from concurrent.futures import ThreadPoolExecutor
+import ome_types
 import pathlib
 import re
 import string
@@ -78,10 +79,10 @@ class Opener:
         self.path = path
         self.reader = None
         self.tilesize = 1024
-        ext = check_ext(path)
+        self.ext = check_ext(path)
         self.default_dtype = np.uint16
 
-        if ext == '.ome.tif' or ext == '.ome.tiff':
+        if self.ext == '.ome.tif' or self.ext == '.ome.tiff':
             self.io = TiffFile(self.path, is_ome=False)
             self.group = zarr.open(self.io.series[0].aszarr())
             self.reader = 'tifffile'
@@ -105,7 +106,7 @@ class Opener:
             print("RGB ", self.rgba)
             print("RGB type ", self.rgba_type)
 
-        elif ext == '.svs':
+        elif self.ext == '.svs':
             self.io = OpenSlide(self.path)
             self.dz = DeepZoomGenerator(self.io, tile_size=1024, overlap=0, limit_bounds=True)
             self.reader = 'openslide'
@@ -134,6 +135,18 @@ class Opener:
         except Exception as e:
             print(e)
             return 5
+
+    def load_xml_markers(self):
+        if self.ext == '.ome.tif' or self.ext == '.ome.tiff':
+            metadata = ome_types.from_tiff(self.path)
+            if not metadata.images or not metadata.images[0]:
+                return []
+            metadata_pixels = metadata.images[0].pixels
+            if not metadata_pixels or not metadata_pixels.channels:
+                return []
+            return [c.name for c in metadata_pixels.channels]
+        else:
+            return []
 
     def close(self):
         self.io.close()
@@ -497,11 +510,21 @@ def open_input_mask(path, convert=False):
 def get_mask_opener(path):
     opener = None
     ext = check_ext(path)
+    invalid = not os.path.exists(path)
+
     if ext == '.ome.tif' or ext == '.ome.tiff':
         opener = G['mask_openers'].get(path)
     elif ext == '.tif' or ext == '.tiff':
         ome_path = tif_path_to_ome_path(path)
         opener = G['mask_openers'].get(ome_path)
+
+    if invalid and opener:
+        mask_lock.acquire()
+        opener.close()
+        G['mask_openers'].pop(opener.path, None)
+        mask_lock.release()
+        return None
+
     return opener
 
 def nocache(view):
@@ -516,8 +539,12 @@ def nocache(view):
 
     return update_wrapper(no_cache, view)
 
-def load_mask_subsets(path):
+def load_mask_subsets(filename):
     mask_subsets = {}
+    path = pathlib.Path(filename)
+    if not path.is_file() or path.suffix != '.csv':
+        return None
+
     with open(path) as cf:
         for row in csv.DictReader(cf):
             try:
@@ -554,7 +581,9 @@ def reload_all_mask_subsets(masks):
             all_mask_subsets[mask['map_path']] = {}
 
     for map_path in all_mask_subsets:
-        all_mask_subsets[map_path] = load_mask_subsets(map_path)
+        subsets = load_mask_subsets(map_path)
+        if subsets is not None:
+            all_mask_subsets[map_path] = subsets
 
     for mask in masks:
         if not is_mask_ok(mask):
@@ -627,10 +656,10 @@ def u32_validate(key):
     """
     img_io = None
     path = unquote(key)
-    invalid = not os.path.exists(path)
+    invalid = True 
 
     # Open the input file on the first request only
-    if path not in G['mask_openers']:
+    if get_mask_opener(path) is None:
         invalid = open_input_mask(path, convert=True)
 
     opener = get_mask_opener(path)
@@ -662,6 +691,11 @@ def mask_subsets(key):
         return response
 
     mask_subsets = load_mask_subsets(path)
+    if mask_subsets is None:
+        response = make_response('Not found', 404)
+        response.mimetype = "text/plain"
+        return response
+
     mask_subsets = [ [k, v] for (k,v) in mask_subsets.items() ]
     return jsonify({
         'mask_subsets': mask_subsets,
@@ -687,7 +721,7 @@ def u32_image(key, level, x, y):
     path = unquote(key)
 
     # Open the input file on the first request only
-    if path not in G['mask_openers']:
+    if get_mask_opener(path) is None:
         open_input_mask(path, convert=False)
 
     opener = get_mask_opener(path)
@@ -723,10 +757,12 @@ def u16_image(channel, level, x, y):
     if G['opener'] is None:
         open_input_file(G['in_file'])
 
-    img_io = render_tile(G['opener'], int(level),
+    img_io = None
+    if G['opener'] is not None:
+        img_io = render_tile(G['opener'], int(level),
                          int(x), int(y), int(channel))
-    if img_io is None:
 
+    if img_io is None:
         response = make_response('Not found', 404)
         response.mimetype = "text/plain"
         return response
@@ -749,7 +785,7 @@ def make_saved_mask(mask):
     new_mask['channels'] = list(map(make_saved_chan, mask.get('channels', [])))
     return new_mask
 
-def make_saved_copy(data):
+def make_saved_file(data):
     new_copy = {k:v for (k,v) in data.items() if k != 'masks'}
     new_copy['masks'] = list(map(make_saved_mask, data.get('masks', [])))
     return new_copy
@@ -767,10 +803,13 @@ def api_save():
         data = request.json
         data['in_file'] = G['in_file']
         data['csv_file'] = G['csv_file']
+        # Set globals whether saving or autosaving
         G['sample_info'] = data['sample_info']
         G['waypoints'] = data['waypoints']
         G['groups'] = data['groups']
         G['masks'] = data['masks']
+        # This should only happen after G is set
+        data = make_saved_file(data)
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
 
@@ -779,8 +818,23 @@ def api_save():
         G['out_dir'] = out_dir
         G['out_log'] = out_log
 
+        saved = load_saved_file(out_dat)[0]
+        # Only relegate to autosave if save file exists
+        if saved and data.get('is_autosave'):
+            # Copy new data to autosave and copy old saved to data
+            data['autosave'] = copy_saved_states(data, {})
+            data = copy_saved_states(saved, data)
+            # Set the autosave timestamp
+            data['autosave']['timestamp'] = time.time()
+        else:
+            # Set the current timestamp
+            data['timestamp'] = time.time()
+            # Persist old autosaves just in case
+            if saved and 'autosave' in saved:
+                data['autosave'] = saved['autosave']
+
         with open(G['out_dat'], 'w') as out_file:
-            json.dump(make_saved_copy(data), out_file)
+            json.dump(data, out_file)
 
         return 'OK'
 
@@ -964,8 +1018,7 @@ def api_render():
         G['out_yaml'] = out_yaml
 
         with open(G['out_yaml'], 'w') as wf:
-            json_text = json.dumps(exhibit_config, ensure_ascii=False)
-            wf.write(json_text)
+            json.dump(exhibit_config, wf)
 
         all_mask_params = {}
 
@@ -1021,17 +1074,56 @@ def api_import_groups():
         if not os.path.exists(input_file):
             return api_error(404, 'File not found: ' + str(input_file))
 
-        if (input_file.suffix == '.dat'):
-            saved = pickle.load( open( input_file, "rb" ) )
+        saved = load_saved_file(input_file)[0]
+        if saved and 'groups' in saved:
             G['groups'] = saved['groups']
-        else:
-            with open(input_file) as json_file:
-                saved = json.load(json_file)
-                G['groups'] = saved['groups']
 
         return jsonify({
             'groups': G['groups']
         })
+
+def load_saved_file(input_file):
+    saved = None
+    autosaved = None
+    input_path = pathlib.Path(input_file)
+    if not input_path.exists():
+        return (None, None)
+
+    if input_path.suffix == '.dat':
+        saved = pickle.load( open( input_path, "rb" ) )
+    else:
+        with open(input_path) as json_file:
+            saved = json.load(json_file)
+            autosaved = saved.get("autosave")
+
+    return (saved, autosaved)
+
+def copy_saved_states(from_save, to_save):
+    saved_keys = [
+        'sample_info', 'waypoints', 'groups', 'masks'
+    ]
+    for saved_key in saved_keys:
+        if saved_key in from_save:
+            to_save[saved_key] = from_save[saved_key]
+
+    return to_save
+
+def is_new_autosave(saved, autosaved):
+    if saved is None or autosaved is None:
+        return False
+
+    autosaved_time = autosaved.get("timestamp")
+    saved_time = saved.get("timestamp")
+    if autosaved_time:
+        if saved_time:
+            # Decide if new autosave
+            return autosaved_time > saved_time
+        else:
+            # Save file from before v1.6.0
+            return True
+    else:
+        # Malformed autosave
+        return False
 
 @app.route('/api/import', methods=['GET', 'POST'])
 @cross_origin()
@@ -1050,6 +1142,7 @@ def api_import():
             'maxLevel': G['maxLevel'],
             'height': G['height'],
             'width': G['width'],
+            'output_save_file': G['out_dat'],
             'warning': G['opener'].warning if G['opener'] else '',
             'rgba': G['opener'].is_rgba() if G['opener'] else False
         })
@@ -1059,18 +1152,30 @@ def api_import():
         data = request.form
         default_out_name = 'out'
         input_file = pathlib.Path(data['filepath'])
+        input_image_file = pathlib.Path(data['filepath'])
+        loading_saved_file = input_file.suffix in ['.dat', '.json']
+
         if not os.path.exists(input_file):
             return api_error(404, 'Image file not found: ' + str(input_file))
 
-        if (input_file.suffix == '.dat' or input_file.suffix == '.json'):
+        if (loading_saved_file):
             default_out_name = input_file.stem
-            if input_file.suffix == '.dat':
-                saved = pickle.load( open( input_file, "rb" ) )
-            else:
-                with open(input_file) as json_file:
-                    saved = json.load(json_file)
+            # autosave_logic should be "ask", "skip", or "load"
+            autosave_logic = data.get("autosave_logic", "skip")
+            autosave_error = autosave_logic == "ask"
 
-            input_file = pathlib.Path(saved['in_file'])
+            (saved, autosaved) = load_saved_file(input_file)
+
+            if is_new_autosave(saved, autosaved):
+                # We need to know whether to use autosave file
+                if autosave_error:
+                    action = 'AUTO ASK ERR'
+                    return api_error(400, f'{action}: Autosave Error')
+                # We will load a new autosave file
+                elif autosave_logic == "load":
+                    saved = copy_saved_states(autosaved, saved)
+
+            input_image_file = pathlib.Path(saved['in_file'])
             if (data['csvpath']):
                 csv_file = pathlib.Path(data['csvpath'])
                 if not os.path.exists(csv_file):
@@ -1102,11 +1207,22 @@ def api_import():
 
         out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name)
 
+        if not loading_saved_file and os.path.exists(out_dat):
+            action = 'OUT ASK ERR'
+            verb = 'provide an' if out_name == default_out_name else 'change the'
+            return api_error(400, f'{action}: Please {verb} output name, as {out_dat} exists.')
+        elif loading_saved_file and os.path.exists(out_dat):
+            if not os.path.samefile(input_file, out_dat):
+                action = 'OUT ASK ERR'
+                verb = 'provide an' if out_name == default_out_name else 'change the'
+                command = f'Please {verb} output name or directly load {out_dat}';
+                return api_error(400, f'{action}: {command}, as that file already exists.')
+
         try:
-            print("Opening file: ", str(input_file))
+            print("Opening file: ", str(input_image_file))
 
             if G['opener'] is None:
-                open_input_file(str(input_file))
+                open_input_file(str(input_image_file))
 
             (num_channels, num_levels, width, height) = G['opener'].get_shape()
             tilesize = G['opener'].tilesize
@@ -1130,6 +1246,11 @@ def api_import():
                             default = row.get('Marker Name', default)
                             yield chanLabel.get(str(label_num), default)
                             label_num += 1
+            else:
+                for label in G['opener'].load_xml_markers():
+                    yield label
+                    label_num += 1
+
             while label_num < num_channels:
                 yield chanLabel.get(str(label_num), str(label_num))
                 label_num += 1
@@ -1137,24 +1258,24 @@ def api_import():
         try:
             labels = list(yield_labels(num_channels))
         except Exception as e:
-            return api_error(500, "Error in opening marker csv file")
+            return api_error(500, "Error in loading channel marker names")
 
         fh = logging.FileHandler(str(out_log))
         fh.setLevel(logging.INFO)
         fh.setFormatter(FORMATTER)
         G['logger'].addHandler(fh)
 
-        if os.path.exists(input_file):
+        if os.path.exists(input_image_file):
             G['out_yaml'] = str(out_yaml)
             G['out_dat'] = str(out_dat)
             G['out_dir'] = str(out_dir)
             G['out_name'] = str(out_name)
-            G['in_file'] = str(input_file)
+            G['in_file'] = str(input_image_file)
             G['csv_file'] = str(csv_file)
             G['channels'] = labels
             G['loaded'] = True
         else:
-            G['logger'].error(f'Input file {input_file} does not exist')
+            G['logger'].error(f'Input file {input_image_file} does not exist')
 
         return 'OK'
 

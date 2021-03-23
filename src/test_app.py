@@ -72,12 +72,12 @@ def test_import_svs(client):
     res = client.post('/api/import', content_type='application/x-www-form-urlencoded', data=form_data)
     assert res.status_code == 200
 
-    _assert_rgb_tile_exists(client, 2, 0, 0, width=555, height=741)
+    _assert_rgb_tile_exists(client, 2, 0, 0, width=555, height=742)
 
     _assert_rgb_tile_exists(client, 1, 0, 0, width=1024, height=1024)
     _assert_rgb_tile_exists(client, 1, 1, 0, width=86, height=1024)
-    _assert_rgb_tile_exists(client, 1, 0, 1, width=1024, height=459)
-    _assert_rgb_tile_exists(client, 1, 1, 1, width=86, height=459)
+    _assert_rgb_tile_exists(client, 1, 0, 1, width=1024, height=460)
+    _assert_rgb_tile_exists(client, 1, 1, 1, width=86, height=460)
 
     _assert_rgb_tile_exists(client, 0, 0, 0, width=1024, height=1024)
     _assert_rgb_tile_exists(client, 0, 1, 0, width=1024, height=1024)

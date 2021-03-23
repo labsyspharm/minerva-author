@@ -74,8 +74,7 @@ def main(ome_tiff, author_json, output_dir, root_url, force=False):
    exhibit_config = make_exhibit_config(opener, root_url, saved)
 
    with open(output_dir / 'exhibit.json', 'w') as wf:
-       json_text = json.dumps(exhibit_config, ensure_ascii=False)
-       wf.write(json_text)
+       json.dump(exhibit_config, wf)
 
    render(opener, saved, output_dir, logger)
 

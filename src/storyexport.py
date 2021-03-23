@@ -42,7 +42,7 @@ def deduplicate_data(waypoints, data_dir):
                 data_dict[data_path] = deduplicate(data_name, data_dict, data_dir)
 
         if 'VisBarChart' in waypoint:
-            data_name = waypoint['VisBarChart']
+            data_path = waypoint['VisBarChart']
             data_name = os.path.basename(data_path)
             data_dict[data_path] = deduplicate(data_name, data_dict, data_dir)
 
@@ -144,6 +144,11 @@ def get_story_folders(title, create=False):
     out_json_config = os.path.join(folder, title, 'exhibit.json')
 
     out_json_save = os.path.join(folder, title + '.json')
+
+    # After version 1.6.0 use .story.json, keep support for existing files
+    if not os.path.exists(out_json_save):
+        out_json_save = os.path.join(folder, title + '.story.json')
+
     out_log = os.path.join(folder, title + '.log')
 
     if create:
