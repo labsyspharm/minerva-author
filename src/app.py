@@ -138,12 +138,18 @@ class Opener:
 
     def load_xml_markers(self):
         if self.ext == '.ome.tif' or self.ext == '.ome.tiff':
-            metadata = ome_types.from_tiff(self.path)
-            if not metadata.images or not metadata.images[0]:
+            try:
+                metadata = ome_types.from_tiff(self.path)
+            except Exception as e:
                 return []
+
+            if not metadata or not metadata.images or not metadata.images[0]:
+                return []
+
             metadata_pixels = metadata.images[0].pixels
             if not metadata_pixels or not metadata_pixels.channels:
                 return []
+
             return [c.name for c in metadata_pixels.channels]
         else:
             return []
