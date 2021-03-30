@@ -535,57 +535,79 @@ def nocache(view):
 
     return update_wrapper(no_cache, view)
 
-def load_mask_subsets(filename):
-    mask_subsets = {}
+def load_mask_state_subsets(filename):
+    all_mask_states = {}
     path = pathlib.Path(filename)
     if not path.is_file() or path.suffix != '.csv':
         return None
 
     with open(path) as cf:
+        state_labels = []
         for row in csv.DictReader(cf):
             try:
                 cell_id = int(row.get('CellID', None))
-                if cell_id in [None, '']:
-                    print(f'Empty CellID')
-                    continue
             except ValueError as e:
-                print(f'Cannot parse CellID "{cell_id}" as an integer')
+                print(f'Cannot parse CellID "{cell_id}" in {filename}')
                 continue
 
-            cell_state = row.get('State', None)
-            if cell_state in [None, '']:
-                print(f'Empty State for CellID "{cell_id}"')
-                continue
+            # Determine whether to use State or sequentially numbered State
+            if not len(state_labels):
+                state_labels = ['State']
+                if state_labels[0] not in row:
+                    state_labels = []
+                    for i in range(1, 10):
+                        state_i = f'State{i}'
+                        if state_i not in row:
+                            break
+                        state_labels.append(state_i)
 
-            mask_group = mask_subsets.get(cell_state, set())
-            mask_group.add(cell_id)
+                if not len(state_labels):
+                    print(f'No State headers found in {filename}')
+                    break
 
-            mask_subsets[cell_state] = mask_group
+            # Load from each State label
+            for state_i in state_labels:
+                cell_state = row.get(state_i, '')
+                if cell_state == '':
+                    print(f'Empty {state_i} for CellID "{cell_id}" in {filename}')
+                    continue
+
+                mask_subsets = all_mask_states.get(state_i, {})
+                mask_group = mask_subsets.get(cell_state, set())
+                mask_group.add(cell_id)
+
+                mask_subsets[cell_state] = mask_group
+                all_mask_states[state_i] = mask_subsets
+
+    if not len(all_mask_states):
+        return None
 
     return {
-        k: sorted(v) for (k,v) in mask_subsets.items()
+        state: {
+            k: sorted(v) for (k,v) in mask_subsets.items()
+        } for (state, mask_subsets) in all_mask_states.items()
     }
 
-def reload_all_mask_subsets(masks):
-    all_mask_subsets = {}
+def reload_all_mask_state_subsets(masks):
+    all_mask_state_subsets = {}
 
     def is_mask_ok(mask):
         return 'map_path' in mask and 'channels' in mask
 
     for mask in masks:
         if is_mask_ok(mask):
-            all_mask_subsets[mask['map_path']] = {}
+            all_mask_state_subsets[mask['map_path']] = {}
 
-    for map_path in all_mask_subsets:
-        subsets = load_mask_subsets(map_path)
-        if subsets is not None:
-            all_mask_subsets[map_path] = subsets
+    for map_path in all_mask_state_subsets:
+        mask_state_subsets = load_mask_state_subsets(map_path)
+        if mask_state_subsets is not None:
+            all_mask_state_subsets[map_path] = mask_state_subsets
 
     for mask in masks:
         if not is_mask_ok(mask):
             continue
 
-        mask_subsets = all_mask_subsets.get(mask['map_path'], {})
+        mask_state_subsets = all_mask_state_subsets.get(mask['map_path'], {})
 
         # Support version 1.5.0 or lower
         mask_label = mask.get('label')
@@ -593,10 +615,12 @@ def reload_all_mask_subsets(masks):
         default_label = default_label if default_label else mask_label
 
         for chan in mask['channels']:
+            state_label = chan.get('state_label', 'State')
             original_label = chan.get('original_label')
             original_label = original_label if original_label else default_label
-            chan['ids'] = mask_subsets.get(original_label, [])
+            chan['ids'] = mask_state_subsets.get(state_label, {}).get(original_label, [])
             chan['original_label'] = original_label
+            chan['state_label'] = state_label
 
     return masks
 
@@ -686,14 +710,21 @@ def mask_subsets(key):
         response.mimetype = "text/plain"
         return response
 
-    mask_subsets = load_mask_subsets(path)
-    if mask_subsets is None:
+    mask_state_subsets = load_mask_state_subsets(path)
+    if mask_state_subsets is None:
         response = make_response('Not found', 404)
         response.mimetype = "text/plain"
         return response
 
-    mask_subsets = [ [k, v] for (k,v) in mask_subsets.items() ]
+    mask_states = []
+    mask_subsets = []
+    for (mask_state, state_subsets) in mask_state_subsets.items():
+        for (k,v) in state_subsets.items():
+            mask_states.append(mask_state)
+            mask_subsets.append([k, v])
+
     return jsonify({
+        'mask_states': mask_states,
         'mask_subsets': mask_subsets,
         'subset_colors': [ colorize_integer(v[0]) for [k,v] in mask_subsets ]
     })
@@ -1190,7 +1221,7 @@ def api_import():
 
             if 'masks' in saved:
                 # This step could take up to a minute
-                G['masks'] = reload_all_mask_subsets(saved['masks'])
+                G['masks'] = reload_all_mask_state_subsets(saved['masks'])
 
             G['waypoints'] = saved['waypoints']
             G['groups'] = saved['groups']

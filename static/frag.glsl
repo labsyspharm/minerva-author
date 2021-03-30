@@ -123,6 +123,9 @@ vec4 u16_rg_range() {
 void main() {
   if (u_tile_fmt == 32) {
     color = u32_rgba_map();
+    if (color.a < 0.1) {
+      discard;
+    }
   }
   else {
     color = u16_rg_range();
