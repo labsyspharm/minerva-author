@@ -889,12 +889,13 @@ def api_save():
             # Persist old autosaves just in case
             if saved and 'autosave' in saved:
                 data['autosave'] = saved['autosave']
-            # Make a copy of the visualization csv files
-            # for use with save_exhibit_pyramid.py
-            copy_vis_csv_files(data['waypoints'], pathlib.Path(out_dat))
 
         with open(G['out_dat'], 'w') as out_file:
             json.dump(data, out_file)
+
+        # Make a copy of the visualization csv files
+        # for use with save_exhibit_pyramid.py
+        copy_vis_csv_files(data['waypoints'], pathlib.Path(out_dat))
 
         return 'OK'
 
