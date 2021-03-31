@@ -96,11 +96,14 @@ def copy_vis_csv_files(waypoint_data, json_path):
 
     # Copy the visualization csv files to an infovis directory
     for in_path, out_path in vis_path_dict_out.items():
-        try:
-            file_util.copy_file(in_path, out_path)
-        except DistutilsFileError as e:
-            print(f'Cannot copy {in_path}')
-            print(e)
+        if pathlib.Path(in_path).suffix in ['.csv']:
+            try:
+                file_util.copy_file(in_path, out_path)
+            except DistutilsFileError as e:
+                print(f'Cannot copy {in_path}')
+                print(e)
+        else:
+            print(f'Refusing to copy non-csv infovis: {in_path}')
 
 class Opener:
 

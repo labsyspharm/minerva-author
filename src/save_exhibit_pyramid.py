@@ -30,12 +30,15 @@ def copy_vis_csv_files(waypoint_data, json_path, output_dir, vis_dir):
 
     # Copy the visualization csv files to a "data" directory
     for key_path, in_path in vis_path_dict_in.items():
-        try:
-            out_path = vis_path_dict_out[key_path]
-            file_util.copy_file(in_path, out_path)
-        except DistutilsFileError as e:
-            print(f'Cannot copy {in_path}')
-            print(e)
+        if pathlib.Path(in_path).suffix in ['.csv']:
+            try:
+                out_path = vis_path_dict_out[key_path]
+                file_util.copy_file(in_path, out_path)
+            except DistutilsFileError as e:
+                print(f'Cannot copy {in_path}')
+                print(e)
+        else:
+            print(f'Refusing to copy non-csv infovis: {in_path}')
 
 def make_exhibit_config(opener, root_url, saved):
 
