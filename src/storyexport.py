@@ -1,5 +1,6 @@
 import re
 import os, sys
+import pathlib
 from distutils import file_util
 from distutils.errors import DistutilsFileError
 
