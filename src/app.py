@@ -18,6 +18,8 @@ import json
 import math
 import time
 import zarr
+from distutils.errors import DistutilsFileError
+from distutils import file_util
 from tifffile import TiffFile
 from tifffile import create_output
 from tifffile.tifffile import TiffFileError
@@ -71,6 +73,34 @@ def check_ext(path):
 def tif_path_to_ome_path(path):
     base, ext = os.path.splitext(path)
     return f'{base}.ome{ext}'
+
+def extract_story_json_stem(input_file):
+    default_out_name = input_file.stem
+    # Handle extracting the actual stem from .story.json files
+    if (pathlib.Path(default_out_name).suffix in ['.story']):
+        default_out_name = pathlib.Path(default_out_name).stem
+    return default_out_name
+
+def copy_vis_csv_files(waypoint_data, json_path):
+    input_dir = json_path.parent
+    author_stem = extract_story_json_stem(json_path)
+    vis_data_dir = f'{author_stem}-story-infovis'
+
+    vis_path_dict_out = deduplicate_data(waypoint_data, input_dir / vis_data_dir)
+
+    if not len(vis_path_dict_out):
+        return
+
+    if not (input_dir / vis_data_dir).exists():
+        (input_dir / vis_data_dir).mkdir(parents=True)
+
+    # Copy the visualization csv files to an infovis directory
+    for in_path, out_path in vis_path_dict_out.items():
+        try:
+            file_util.copy_file(in_path, out_path)
+        except DistutilsFileError as e:
+            print(f'Cannot copy {in_path}')
+            print(e)
 
 class Opener:
 
@@ -315,7 +345,7 @@ class Opener:
                 if skip_empty_tile:
                     empty_file = get_empty_path(output_file)
                     if not os.path.exists(empty_file):
-                        with open(empty_file, 'w') as fp: 
+                        with open(empty_file, 'w') as fp:
                             pass
                 else:
                     img = Image.frombytes('RGBA', target.T.shape[1:], target.tobytes())
@@ -676,7 +706,7 @@ def u32_validate(key):
     """
     img_io = None
     path = unquote(key)
-    invalid = True 
+    invalid = True
 
     # Open the input file on the first request only
     if get_mask_opener(path) is None:
@@ -859,6 +889,9 @@ def api_save():
             # Persist old autosaves just in case
             if saved and 'autosave' in saved:
                 data['autosave'] = saved['autosave']
+            # Make a copy of the visualization csv files
+            # for use with save_exhibit_pyramid.py
+            copy_vis_csv_files(data['waypoints'], pathlib.Path(out_dat))
 
         with open(G['out_dat'], 'w') as out_file:
             json.dump(data, out_file)
@@ -905,29 +938,13 @@ def format_overlay(o):
         'height': o[3]
     }
 
-def make_waypoints_simple(d, mask_data):
+def make_waypoints(d, mask_data, vis_path_dict={}):
 
     for waypoint in d:
-        wp = {
-            'Name': waypoint['name'],
-            'Description': waypoint['text'],
-            'Arrows': list(map(format_arrow, waypoint['arrows'])),
-            'Overlays': list(map(format_overlay, waypoint['overlays'])),
-            'Group': waypoint['group'],
-            'Masks': [],
-            'ActiveMasks': [],
-            'Zoom': waypoint['zoom'],
-            'Pan': waypoint['pan'],
-        }
-
-        yield wp
-
-def make_waypoints(d, mask_data):
-
-    vis_path_dict = deduplicate_data(d, 'data')
-    for waypoint in d:
-        wp_masks = waypoint['masks']
-        mask_labels = [mask_label_from_index(mask_data, i) for i in wp_masks]
+        mask_labels = []
+        if len(mask_data) > 0:
+            wp_masks = waypoint['masks']
+            mask_labels = [mask_label_from_index(mask_data, i) for i in wp_masks]
         wp = {
             'Name': waypoint['name'],
             'Description': waypoint['text'],
@@ -937,7 +954,7 @@ def make_waypoints(d, mask_data):
             'Masks': mask_labels,
             'ActiveMasks': mask_labels,
             'Zoom': waypoint['zoom'],
-            'Pan': waypoint['pan'],
+            'Pan': waypoint['pan']
         }
         for vis in ['VisScatterplot', 'VisCanvasScatterplot', 'VisMatrix']:
             if vis in waypoint:
@@ -949,12 +966,11 @@ def make_waypoints(d, mask_data):
 
         yield wp
 
-def make_stories(d, mask_data, simple=False):
-    wp_function = make_waypoints_simple if simple else make_waypoints
+def make_stories(d, mask_data=[], vis_path_dict={}):
     return [{
         'Name': '',
         'Description': '',
-        'Waypoints': list(wp_function(d, mask_data))
+        'Waypoints': list(make_waypoints(d, mask_data, vis_path_dict))
     }]
 
 def make_mask_yaml(mask_data):
@@ -1000,6 +1016,8 @@ def make_exhibit_config(opener, out_name, json):
     data = json['groups']
     mask_data = json['masks']
     waypoint_data = json['waypoints']
+    vis_path_dict = deduplicate_data(waypoint_data, 'data')
+
     (num_channels, num_levels, width, height) = opener.get_shape()
 
     _config = {
@@ -1014,7 +1032,7 @@ def make_exhibit_config(opener, out_name, json):
         'Header': json['header'],
         'Rotation': json['rotation'],
         'Layout': {'Grid': [['i0']]},
-        'Stories': make_stories(waypoint_data, mask_data),
+        'Stories': make_stories(waypoint_data, mask_data, vis_path_dict),
         'Masks': list(make_mask_yaml(mask_data)),
         'Groups': list(make_groups(data))
     }
@@ -1186,10 +1204,7 @@ def api_import():
             return api_error(404, 'Image file not found: ' + str(input_file))
 
         if (loading_saved_file):
-            default_out_name = input_file.stem
-            # Handle extracting the actual stem from .story.json files
-            if (pathlib.Path(default_out_name).suffix in ['.story']):
-                default_out_name = pathlib.Path(default_out_name).stem
+            default_out_name = extract_story_json_stem(input_file)
             # autosave_logic should be "ask", "skip", or "load"
             autosave_logic = data.get("autosave_logic", "skip")
             autosave_error = autosave_logic == "ask"

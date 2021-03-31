@@ -1,6 +1,7 @@
 import re
 import os, sys
 from distutils import file_util
+from distutils.errors import DistutilsFileError
 
 def label_to_dir(s, empty='0'):
     replaced = re.sub('[^0-9a-zA-Z _-]+', '', s).strip()
@@ -116,7 +117,11 @@ def create_story_base(title, waypoints, masks):
     os.makedirs(data_dir, exist_ok=True)
     os.makedirs(out_dir, exist_ok=True)
 
-    file_util.copy_file(os.path.join(story_dir, 'index.html'), export_dir)
+    try:
+        file_util.copy_file(os.path.join(story_dir, 'index.html'), export_dir)
+    except DistutilsFileError as e:
+        print(f'Cannot copy index.html from {story_dir}')
+        print(e)
 
     vis_path_dict = deduplicate_data(waypoints, data_dir)
     mask_index_dict = dedup_index_to_path(masks, out_dir)
@@ -126,7 +131,11 @@ def create_story_base(title, waypoints, masks):
         os.makedirs(path_i, exist_ok=True)
 
     for in_path, out_path in vis_path_dict.items():
-        file_util.copy_file(in_path, out_path)
+        try:
+            file_util.copy_file(in_path, out_path)
+        except DistutilsFileError as e:
+            print(f'Cannot copy {in_path}')
+            print(e)
 
 def get_story_folders(title, create=False):
     """
