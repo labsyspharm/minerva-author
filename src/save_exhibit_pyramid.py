@@ -6,6 +6,7 @@ import logging
 import argparse
 from distutils import file_util
 from distutils.errors import DistutilsFileError
+from tifffile.tifffile import TiffFileError
 from json.decoder import JSONDecodeError
 from render_jpg import render_color_tiles
 from storyexport import deduplicate_data

@@ -659,6 +659,7 @@ def reload_all_mask_state_subsets(masks):
 
 
 @app.route('/')
+@nocache
 def root():
     """
     Serves the minerva-author web UI
