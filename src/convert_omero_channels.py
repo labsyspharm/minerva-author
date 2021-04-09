@@ -14,8 +14,8 @@ def make_channel(ch_key, ch):
         print(f'Skipping channel: "{ch_key}" is not an integer')
         return {}
     return {
-        "color": ch['color'],
         "label": ch['label'],
+        "color": ch['color'].lower(),
         "min": ch['start'] / ch['max'],
         "max": ch['end'] / ch['max'],
         "id": ch_id,
