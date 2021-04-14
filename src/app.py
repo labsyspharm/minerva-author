@@ -574,13 +574,16 @@ def load_mask_state_subsets(filename):
     if not path.is_file() or path.suffix != '.csv':
         return None
 
-    with open(path) as cf:
+    with open(path, encoding='utf-8-sig') as cf:
         state_labels = []
         for row in csv.DictReader(cf):
+            if 'CellID' not in row:
+                print(f'No CellID found in {filename}')
+                break
             try:
                 cell_id = int(row.get('CellID', None))
-            except ValueError as e:
-                print(f'Cannot parse CellID "{cell_id}" in {filename}')
+            except TypeError as e:
+                print(f'Cannot parse CellID in {filename}')
                 continue
 
             # Determine whether to use State or sequentially numbered State
@@ -1289,7 +1292,7 @@ def api_import():
         def yield_labels(num_channels):
             label_num = 0
             if str(csv_file) != '.':
-                with open(csv_file) as cf:
+                with open(csv_file, encoding='utf-8-sig') as cf:
                     for row in csv.DictReader(cf):
                         if label_num < num_channels:
                             default = row.get('marker_name', str(label_num))
