@@ -81,6 +81,28 @@ def extract_story_json_stem(input_file):
         default_out_name = pathlib.Path(default_out_name).stem
     return default_out_name
 
+def yield_labels(opener, csv_file, chan_label, num_channels):
+    label_num = 0
+    # First, try to load labels from CSV
+    if str(csv_file) != '.':
+        with open(csv_file, encoding='utf-8-sig') as cf:
+            for row in csv.DictReader(cf):
+                if label_num < num_channels:
+                    default = row.get('marker_name', str(label_num))
+                    default = row.get('Marker Name', default)
+                    yield chan_label.get(str(label_num), default)
+                    label_num += 1
+    # Second, try to load labels from OME-XML
+    else:
+        for label in opener.load_xml_markers():
+            yield label
+            label_num += 1
+
+    # Finally, default to numerical labels
+    while label_num < num_channels:
+        yield chan_label.get(str(label_num), str(label_num))
+        label_num += 1
+
 def copy_vis_csv_files(waypoint_data, json_path):
     input_dir = json_path.parent
     author_stem = extract_story_json_stem(json_path)
@@ -417,30 +439,10 @@ def api_error(status, message):
 
 def reset_globals():
     _g = {
-        'in_file': None,
-        'opener': None,
-        'csv_file': None,
-        'out_dir': None,
-        'out_dat': None,
-        'out_yaml': None,
-        'out_log': None,
         'logger': logging.getLogger('app'),
         'import_pool': ThreadPoolExecutor(max_workers=1),
-        'sample_info': {
-            'rotation': 0,
-            'name': '',
-            'text': ''
-        },
+        'image_openers': {},
         'mask_openers': {},
-        'masks': [],
-        'groups': [],
-        'waypoints': [],
-        'channels': [],
-        'loaded': False,
-        'maxLevel': None,
-        'tilesize': 1024,
-        'height': 1024,
-        'width': 1024,
         'save_progress': {},
         'save_progress_max': {}
     }
@@ -471,21 +473,31 @@ app = Flask(__name__,
 cors = CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
-def open_input_file(path):
+def cache_opener(path, opener, key, multi_lock):
     global G
-    tiff_lock.acquire()
-    if G['opener'] is None and path is not None:
-        opener = Opener(path)
-        if opener.reader is not None:
-            G['opener'] = Opener(path)
-    tiff_lock.release()
+    if isinstance(opener, Opener):
+        multi_lock.acquire()
+        G[key][path] = opener
+        multi_lock.release()
+        return True
+    return False
 
-def make_mask_opener(path):
-    if path not in G['mask_openers']:
+def cache_image_opener(path, opener):
+    return cache_opener(path, opener, 'image_openers', tiff_lock)
+
+def cache_mask_opener(path, opener):
+    return cache_opener(path, opener, 'mask_openers', mask_lock)
+
+def return_opener(path, key):
+    if path not in G[key]:
         try:
-            return Opener(path)
+            opener = Opener(path)
+            return opener if opener.reader != None else None
         except (FileNotFoundError, TiffFileError) as e:
             print(e)
+            return None
+    else:
+        return G[key][path]
 
 def convert_mask(path):
     sys.stdout.reconfigure(line_buffering=True)
@@ -512,34 +524,28 @@ def convert_mask(path):
     print(f'Done creating {ome_path}')
 
 def open_input_mask(path, convert=False):
-    global G
     opener = None
     invalid = True
     ext = check_ext(path)
     if ext == '.ome.tif' or ext == '.ome.tiff':
-        opener = make_mask_opener(path)
+        opener = return_opener(path, 'mask_openers')
     elif ext == '.tif' or ext == '.tiff':
         ome_path = tif_path_to_ome_path(path)
         convertable = os.path.exists(path) and not os.path.exists(ome_path)
         if convert and convertable:
             executor = G['import_pool'].submit(convert_mask, path)
         elif os.path.exists(ome_path):
-            opener = make_mask_opener(ome_path)
+            opener = return_opener(ome_path, 'mask_openers')
             path = ome_path
         invalid = False
 
-    if isinstance(opener, Opener):
-        mask_lock.acquire()
-        G['mask_openers'][path] = opener
-        mask_lock.release()
-        return False
+    success = cache_mask_opener(path, opener)
+    return False if success else invalid
 
-    return invalid
-
-def get_mask_opener(path):
+def check_mask_opener(path):
+    global G
     opener = None
     ext = check_ext(path)
-    invalid = not os.path.exists(path)
 
     if ext == '.ome.tif' or ext == '.ome.tiff':
         opener = G['mask_openers'].get(path)
@@ -547,7 +553,8 @@ def get_mask_opener(path):
         ome_path = tif_path_to_ome_path(path)
         opener = G['mask_openers'].get(ome_path)
 
-    if invalid and opener:
+    # Remove invalid openers
+    if not os.path.exists(opener.path) and opener:
         mask_lock.acquire()
         opener.close()
         G['mask_openers'].pop(opener.path, None)
@@ -555,6 +562,18 @@ def get_mask_opener(path):
         return None
 
     return opener
+
+def return_mask_opener(path, convert):
+    invalid = True
+    if check_mask_opener(path) is None:
+        invalid = open_input_mask(path, convert)
+    opener = check_mask_opener(path)
+    return (invalid, opener)
+
+def return_image_opener(path):
+    opener = return_opener(path, 'image_openers')
+    success = cache_image_opener(path, opener)
+    return (not success, opener)
 
 def nocache(view):
     @wraps(view)
@@ -667,29 +686,28 @@ def root():
     """
     Serves the minerva-author web UI
     """
-    global G
-    close_tiff()
-    close_masks()
-    close_import_pool()
-    tiff_lock.acquire()
-    mask_lock.acquire()
-    G = reset_globals()
-    tiff_lock.release()
-    mask_lock.release()
     return app.send_static_file('index.html')
 
-@app.route('/story/', defaults={'path': 'index.html'})
-@app.route('/story/<path:path>')
+@app.route('/story/<session>/', defaults={'path': 'index.html'})
+@app.route('/story/<session>/<path:path>')
 @cross_origin()
 @nocache
-def out_story(path):
+def out_story(session, path):
+    """
+    Serves any file path in the given story preview
+    Args:
+        session: unique string identifying save output
+        path: any file path in story preview
+    Returns: content of any given file
+    """
+    # TODO
+    out_name = session
 
-    not_valid = (G['out_yaml'] is None)
-
-    out_dir = os.path.dirname(G['out_yaml'] or '')
+    out_yaml = get_story_folders(out_name)[1]
+    out_dir = os.path.dirname(out_yaml or '')
     out_file = os.path.join(out_dir, path)
 
-    if not_valid or not os.path.exists(out_file):
+    if not out_yaml or not os.path.exists(out_file):
         response = make_response('Not found', 404)
         response.mimetype = "text/plain"
         return response
@@ -713,13 +731,9 @@ def u32_validate(key):
     """
     img_io = None
     path = unquote(key)
-    invalid = True
 
     # Open the input file on the first request only
-    if get_mask_opener(path) is None:
-        invalid = open_input_mask(path, convert=True)
-
-    opener = get_mask_opener(path)
+    (invalid, opener) = return_mask_opener(path, convert=True)
 
     return jsonify({
         "invalid": invalid,
@@ -784,11 +798,9 @@ def u32_image(key, level, x, y):
     img_io = None
     path = unquote(key)
 
-    # Open the input file on the first request only
-    if get_mask_opener(path) is None:
-        open_input_mask(path, convert=False)
+    # Open the input file without allowing any conversion
+    (invalid, opener) = return_mask_opener(path, convert=False)
 
-    opener = get_mask_opener(path)
     if isinstance(opener, Opener):
         img_io = render_tile(opener, int(level),
                         int(x), int(y), 0, 'RGBA')
@@ -801,13 +813,14 @@ def u32_image(key, level, x, y):
     return send_file(img_io, mimetype='image/png')
 
 
-@app.route('/api/u16/<channel>/<level>_<x>_<y>.png')
+@app.route('/api/u16/<key>/<channel>/<level>_<x>_<y>.png')
 @cross_origin()
 @nocache
-def u16_image(channel, level, x, y):
+def u16_image(key, channel, level, x, y):
     """
     Returns a single channel 16-bit tile from the image
     Args:
+        key: URL-escaped path to image
         channel: Image channel
         level: Pyramid level
         x: Tile coordinate x
@@ -816,14 +829,14 @@ def u16_image(channel, level, x, y):
     Returns: Tile image in png format
 
     """
-
-    # Open the input file on the first request only
-    if G['opener'] is None:
-        open_input_file(G['in_file'])
-
     img_io = None
-    if G['opener'] is not None:
-        img_io = render_tile(G['opener'], int(level),
+    path = unquote(key)
+
+    # Open the input file if not already open
+    (invalid, opener) = return_image_opener(path)
+
+    if opener and not invalid:
+        img_io = render_tile(opener, int(level),
                          int(x), int(y), int(channel))
 
     if img_io is None:
@@ -832,13 +845,6 @@ def u16_image(channel, level, x, y):
         return response
 
     return send_file(img_io, mimetype='image/png')
-
-@app.route('/api/out/<path:path>')
-@cross_origin()
-@nocache
-def out_image(path):
-    image_path = os.path.join(G['out_dir'], path)
-    return send_file(image_path, mimetype='image/jpeg')
 
 def make_saved_chan(chan):
     # We consider ids too large to store
@@ -854,33 +860,27 @@ def make_saved_file(data):
     new_copy['masks'] = list(map(make_saved_mask, data.get('masks', [])))
     return new_copy
 
-@app.route('/api/save', methods=['POST'])
+@app.route('/api/save/<session>', methods=['POST'])
 @cross_origin()
 @nocache
-def api_save():
+def api_save(session):
     """
     Saves minerva-author project information in json file.
+    Args:
+        session: unique string identifying save output
     Returns: OK on success
 
     """
+    # TODO
+    out_name = session
+
     if request.method == 'POST':
+        # TODO: make sure "in_file" and "csv_file" are sent in data
+        # "in_file" is the "input_image_file"
         data = request.json
-        data['in_file'] = G['in_file']
-        data['csv_file'] = G['csv_file']
-        # Set globals whether saving or autosaving
-        G['sample_info'] = data['sample_info']
-        G['waypoints'] = data['waypoints']
-        G['groups'] = data['groups']
-        G['masks'] = data['masks']
-        # This should only happen after G is set
         data = make_saved_file(data)
 
-        out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
-
-        G['out_dat'] = out_dat
-        G['out_yaml'] = out_yaml
-        G['out_dir'] = out_dir
-        G['out_log'] = out_log
+        out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name)
 
         saved = load_saved_file(out_dat)[0]
         # Only relegate to autosave if save file exists
@@ -897,7 +897,7 @@ def api_save():
             if saved and 'autosave' in saved:
                 data['autosave'] = saved['autosave']
 
-        with open(G['out_dat'], 'w') as out_file:
+        with open(out_dat, 'w') as out_file:
             json.dump(data, out_file)
 
         # Make a copy of the visualization csv files
@@ -916,15 +916,19 @@ def create_progress_callback(maximum, key='default'):
     progress_callback(0)
     return progress_callback
 
-@app.route('/api/render/progress', methods=['GET'])
+@app.route('/api/render/<session>/progress', methods=['GET'])
 @cross_origin()
 @nocache
-def get_render_progress():
+def get_render_progress(session):
     """
     Returns progress of rendering of tiles (0-100). The progress bar in minerva-author-ui uses this endpoint.
+    Args:
+        session: unique string identifying save output
     Returns: JSON which contains progress and max
-
     """
+    # TODO: actually implement something here
+    out_name = session
+
     return jsonify({
         "progress": sum(G['save_progress'].values()),
         "max": sum(G['save_progress_max'].values())
@@ -1047,46 +1051,58 @@ def make_exhibit_config(opener, out_name, json):
     return _config
 
 
-@app.route('/api/render', methods=['POST'])
+@app.route('/api/render/<session>', methods=['POST'])
 @cross_origin()
 @nocache
-def api_render():
+def api_render(session):
     """
     Renders all image tiles and saves them under new minerva-story instance.
+    Args:
+        session: unique string identifying save output
     Returns: OK on success
 
     """
     G['save_progress'] = {}
     G['save_progress_max'] = {}
 
+    # TODO
+    out_name = session
+
     if request.method == 'POST':
+
+        path = request.json['in_file']
+        (invalid, opener) = return_image_opener(path)
+        out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name)
+
+        if invalid or not opener:
+            return api_error(404, 'Image file not found: ' + str(path))
+
         data = request.json['groups']
         mask_data = request.json['masks']
         waypoint_data = request.json['waypoints']
-        create_story_base(G['out_name'], waypoint_data, mask_data)
+        create_story_base(out_name, waypoint_data, mask_data)
         config_rows = list(make_rows(data))
-        exhibit_config = make_exhibit_config(G['opener'], G['out_name'], request.json)
+        exhibit_config = make_exhibit_config(opener, out_name, request.json)
 
-        out_dir, out_yaml, out_dat, out_log = get_story_folders(G['out_name'])
-        G['out_yaml'] = out_yaml
-
-        with open(G['out_yaml'], 'w') as wf:
+        with open(out_yaml, 'w') as wf:
             json.dump(exhibit_config, wf)
 
         all_mask_params = {}
 
         for (i, mask) in enumerate(mask_data):
 
-            mask_params = {}
+            mask_params = {
+                'opener': None,
+                'images': []
+            }
             mask_path = mask['path']
 
             if mask_path in all_mask_params:
                 mask_params = all_mask_params[mask_path]
             else:
-                if mask_path not in G['mask_openers']:
-                    open_input_mask(mask_path, convert=False)
-                mask_params['images'] = []
-                mask_params['opener'] = get_mask_opener(mask_path)
+                # Open the input file without allowing any conversion
+                (invalid, mask_opener) = return_mask_opener(mask_path, convert=False)
+                mask_params['opener'] = mask_opener
 
             if isinstance(mask_params['opener'], Opener):
                 mask_opener = mask_params['opener']
@@ -1108,7 +1124,7 @@ def api_render():
                 print(f'Skipping render of {mask_path}')
 
         # Render all uint16 image channels
-        render_color_tiles(G['opener'], G['out_dir'], 1024, config_rows, G['logger'],
+        render_color_tiles(opener, out_dir, 1024, config_rows, G['logger'],
                            progress_callback=render_progress_callback)
 
         # Render all uint32 segmentation masks
@@ -1128,11 +1144,11 @@ def api_import_groups():
             return api_error(404, 'File not found: ' + str(input_file))
 
         saved = load_saved_file(input_file)[0]
-        if saved and 'groups' in saved:
-            G['groups'] = saved['groups']
+        if not saved or 'groups' not in saved:
+            return api_error(400, 'File contains invalid groups: ' + str(input_file))
 
         return jsonify({
-            'groups': G['groups']
+            'groups': saved['groups']
         })
 
 def load_saved_file(input_file):
@@ -1178,30 +1194,13 @@ def is_new_autosave(saved, autosaved):
         # Malformed autosave
         return False
 
-@app.route('/api/import', methods=['GET', 'POST'])
+@app.route('/api/import', methods=['POST'])
 @cross_origin()
 @nocache
 def api_import():
-    if request.method == 'GET':
-
-        return jsonify({
-            'loaded': G['loaded'],
-            'waypoints': G['waypoints'],
-            'sample_info': G['sample_info'],
-            'groups': G['groups'],
-            'masks': G['masks'],
-            'channels': G['channels'],
-            'tilesize': G['tilesize'],
-            'maxLevel': G['maxLevel'],
-            'height': G['height'],
-            'width': G['width'],
-            'output_save_file': G['out_dat'],
-            'warning': G['opener'].warning if G['opener'] else '',
-            'rgba': G['opener'].is_rgba() if G['opener'] else False
-        })
-
     if request.method == 'POST':
-        chanLabel = {}
+        response = {}
+        chan_label = {}
         data = request.form
         default_out_name = 'out'
         input_file = pathlib.Path(data['filepath'])
@@ -1236,21 +1235,19 @@ def api_import():
             else:
                 csv_file = pathlib.Path(saved['csv_file'])
             if 'sample_info' in saved:
-                G['sample_info'] = saved['sample_info']
-            try:
-                G['sample_info']['rotation']
-            except KeyError:
-                G['sample_info']['rotation'] = 0
+                response['sample_info'] = saved['sample_info']
+                if 'rotation' not in response['sample_info']:
+                    response['sample_info']['rotation'] = 0
 
             if 'masks' in saved:
                 # This step could take up to a minute
-                G['masks'] = reload_all_mask_state_subsets(saved['masks'])
+                response['masks'] = reload_all_mask_state_subsets(saved['masks'])
 
-            G['waypoints'] = saved['waypoints']
-            G['groups'] = saved['groups']
+            response['waypoints'] = saved['waypoints']
+            response['groups'] = saved['groups']
             for group in saved['groups']:
                 for chan in group['channels']:
-                    chanLabel[str(chan['id'])] = chan['label']
+                    chan_label[str(chan['id'])] = chan['label']
         else:
             csv_file = pathlib.Path(data['csvpath'])
 
@@ -1271,45 +1268,27 @@ def api_import():
                 command = f'Please {verb} output name or directly load {out_dat}';
                 return api_error(400, f'{action}: {command}, as that file already exists.')
 
+        opener = None
         try:
             print("Opening file: ", str(input_image_file))
 
-            if G['opener'] is None:
-                open_input_file(str(input_image_file))
+            (invalid, opener) = return_image_opener(str(input_image_file))
+            if invalid or not opener:
+                return api_error(404, 'Image file not found: ' + str(input_image_file))
 
-            (num_channels, num_levels, width, height) = G['opener'].get_shape()
-            tilesize = G['opener'].tilesize
+            (num_channels, num_levels, width, height) = opener.get_shape()
 
-            G['maxLevel'] = num_levels - 1
-            G['tilesize'] = tilesize
-            G['height'] = height
-            G['width'] = width
+            response['maxLevel'] = num_levels - 1
+            response['tilesize'] = opener.tilesize
+            response['height'] = height
+            response['width'] = width
 
         except Exception as e:
             print (e)
             return api_error(500, 'Invalid tiff file')
 
-        def yield_labels(num_channels):
-            label_num = 0
-            if str(csv_file) != '.':
-                with open(csv_file, encoding='utf-8-sig') as cf:
-                    for row in csv.DictReader(cf):
-                        if label_num < num_channels:
-                            default = row.get('marker_name', str(label_num))
-                            default = row.get('Marker Name', default)
-                            yield chanLabel.get(str(label_num), default)
-                            label_num += 1
-            else:
-                for label in G['opener'].load_xml_markers():
-                    yield label
-                    label_num += 1
-
-            while label_num < num_channels:
-                yield chanLabel.get(str(label_num), str(label_num))
-                label_num += 1
-
         try:
-            labels = list(yield_labels(num_channels))
+            labels = list(yield_labels(opener, csv_file, chan_label, num_channels))
         except Exception as e:
             return api_error(500, "Error in loading channel marker names")
 
@@ -1318,19 +1297,33 @@ def api_import():
         fh.setFormatter(FORMATTER)
         G['logger'].addHandler(fh)
 
-        if os.path.exists(input_image_file):
-            G['out_yaml'] = str(out_yaml)
-            G['out_dat'] = str(out_dat)
-            G['out_dir'] = str(out_dir)
-            G['out_name'] = str(out_name)
-            G['in_file'] = str(input_image_file)
-            G['csv_file'] = str(csv_file)
-            G['channels'] = labels
-            G['loaded'] = True
-        else:
-            G['logger'].error(f'Input file {input_image_file} does not exist')
+        if not os.path.exists(input_image_file):
+            error_message = f'Input file {input_image_file} does not exist'
+            G['logger'].error(error_message)
+            return api_error(404, error_message)
 
-        return 'OK'
+        return jsonify({
+            'loaded': True,
+            'channels': labels,
+            'session': out_name, #TODO
+            'output_save_file': str(out_dat),
+            'marker_csv_file': str(csv_file),
+            'input_image_file': str(input_image_file),
+            'waypoints': response.get('waypoints', []),
+            'sample_info': response.get('sample_info', {
+                'rotation': 0,
+                'name': '',
+                'text': ''
+            }),
+            'masks': response.get('masks', []),
+            'groups': response.get('groups', []),
+            'tilesize': response.get('tilesize', 1024),
+            'maxLevel': response.get('maxLevel', 1),
+            'height': response.get('height', 1024),
+            'width': response.get('width', 1024),
+            'warning': opener.warning if opener else '',
+            'rgba': opener.is_rgba() if opener else False
+        })
 
 @app.route('/api/filebrowser', methods=['GET'])
 @cross_origin()
@@ -1418,10 +1411,10 @@ def _get_drives_win():
     return drives
 
 def close_tiff():
-    print("Closing tiff file")
-    if G['opener'] is not None:
+    print("Closing tiff files")
+    for opener in G['image_openers'].values():
         try:
-            G['opener'].close()
+            opener.close()
         except Exception as e:
             print(e)
 
