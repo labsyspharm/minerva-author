@@ -40,8 +40,8 @@ import ome_types
 from PIL import Image
 from tifffile import TiffFile
 from tifffile.tifffile import TiffFileError
-from openslide import OpenSlide
-from openslide.deepzoom import DeepZoomGenerator
+#from openslide import OpenSlide
+#from openslide.deepzoom import DeepZoomGenerator
 
 # Web App tools
 import webbrowser
@@ -236,19 +236,6 @@ class Opener:
             print("RGB ", self.rgba)
             print("RGB type ", self.rgba_type)
 
-        elif self.ext == ".svs":
-            self.io = OpenSlide(self.path)
-            self.dz = DeepZoomGenerator(
-                self.io, tile_size=1024, overlap=0, limit_bounds=True
-            )
-            self.reader = "openslide"
-            self.rgba = True
-            self.rgba_type = None
-            self.default_dtype = np.uint8
-
-            print("RGB ", self.rgba)
-            print("RGB type ", self.rgba_type)
-
         else:
             self.reader = None
 
@@ -306,9 +293,8 @@ class Opener:
             ny = int(np.ceil(self.group[level].shape[-2] / tile_size))
             nx = int(np.ceil(self.group[level].shape[-1] / tile_size))
             return (nx, ny)
-        elif self.reader == "openslide":
-            reverse_level = self.dz.level_count - 1 - level
-            return self.dz.level_tiles[reverse_level]
+        elif self.reader == 'openslide':
+            raise Exception("SVS not supported on O2")
 
     def get_shape(self):
         def parse_shape(shape):
@@ -397,10 +383,8 @@ class Opener:
 
             return Image.fromarray(tile, _format)
 
-        elif self.reader == "openslide":
-            reverse_level = self.dz.level_count - 1 - level
-            img = self.dz.get_tile(reverse_level, (tx, ty))
-            return img
+        elif self.reader == 'openslide':
+            raise Exception("SVS not supported on O2")
 
     def generate_mask_tiles(
         self, filename, mask_params, tile_size, level, tx, ty, should_skip_tiles={}
