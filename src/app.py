@@ -387,6 +387,10 @@ class Opener:
             tile[:,:,0] = tile_0
             tile[:,:,1] = tile_1
             tile[:,:,2] = tile_2
+            # TODO, support RGBA channel settings
+            tile_float = (tile.astype('float32') - 21) / (200 - 21)
+            tile_float = tile_float.clip(0,1, out=tile_float)
+            tile = np.uint8(np.rint(tile_float * 255))
 
             img = Image.fromarray(tile, 'RGB')
             img.save(output_file, quality=85)
@@ -395,6 +399,10 @@ class Opener:
 
             num_channels = self.get_shape()[0]
             tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+            # TODO, support RGBA channel settings
+            tile_float = (tile.astype('float32') - 21) / (200 - 21)
+            tile_float = tile_float.clip(0,1, out=tile_float)
+            tile = np.uint8(np.rint(tile_float * 255))
 
             img = Image.fromarray(tile, 'RGB')
             img.save(output_file, quality=85)
