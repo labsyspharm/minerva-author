@@ -268,7 +268,10 @@ class Opener:
                 tile = self.group[level][iy:iy+tilesize, ix:ix+tilesize]
             else:
                 tile = self.group[level][channel_number, iy:iy+tilesize, ix:ix+tilesize]
-            tile = np.squeeze(tile)
+            if len(tile.shape) > 2:
+                # Usually return a 2d tile, return 3d for 1-channel rgb
+                needed_axes = 2 + int(tile.shape[2] > 1)
+                tile = np.squeeze(tile,axis=tuple(range(needed_axes,len(tile.shape))))
             return tile
         except Exception as e:
             G['logger'].error(e)
