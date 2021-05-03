@@ -41,13 +41,18 @@ def copy_vis_csv_files(waypoint_data, json_path, output_dir, vis_dir):
         else:
             print(f'Refusing to copy non-csv infovis: {in_path}')
 
+def set_if_not_none(exhibit, key, value):
+    if value is not None:
+        exhibit[key] = value
+    return exhibit
+
 def make_exhibit_config(opener, root_url, saved):
 
     waypoint_data = saved['waypoints']
     (num_channels, num_levels, width, height) = opener.get_shape()
     vis_path_dict = deduplicate_data(waypoint_data, 'data')
 
-    return {
+    exhibit = {
         'Images': [{
             'Name': 'i0',
             'Description': saved['sample_info']['name'],
@@ -63,6 +68,14 @@ def make_exhibit_config(opener, root_url, saved):
         'Groups': list(make_groups(saved['groups'])),
         'Masks': []
     }
+    first_group = saved['sample_info'].get('first_group', None)
+    default_group = saved['sample_info'].get('default_group', None)
+    pixels_per_micron = saved['sample_info'].get('pixels_per_micron', None)
+    exhibit = set_if_not_none(exhibit, 'PixelsPerMicron', pixels_per_micron)
+    exhibit = set_if_not_none(exhibit, 'DefaultGroup', default_group)
+    exhibit = set_if_not_none(exhibit, 'FirstGroup', first_group)
+
+    return exhibit
 
 def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
     FORMATTER = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
