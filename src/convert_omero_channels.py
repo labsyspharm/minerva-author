@@ -4,6 +4,7 @@ import os
 import argparse
 from json.decoder import JSONDecodeError
 
+
 def make_channel(ch_key, ch):
     ch_id = 0
     try:
@@ -21,6 +22,7 @@ def make_channel(ch_key, ch):
         "id": ch_id,
     }
 
+
 def make_group(channels):
     all_channels = [
         make_channel(ch_key, ch) for (ch_key, ch) in channels.items()
@@ -31,6 +33,7 @@ def make_group(channels):
         "channels": all_channels,
         "label": "imported omero channels"
     }
+
 
 def main(omero_json, author_json):
 
@@ -59,9 +62,8 @@ def main(omero_json, author_json):
         with open(omero_json) as rf:
             loaded = json.load(rf)
         omero_channels = loaded['channels']
-    except (FileNotFoundError, JSONDecodeError, KeyError) as e:
-        logger.error(e)
-        logger.error(f'Invalid input file: cannot parse {omero_json}')
+    except (FileNotFoundError, JSONDecodeError, KeyError):
+        print(f'Invalid input file: cannot parse {omero_json}')
         return
 
     with open(author_json, 'w') as wf:
@@ -81,6 +83,7 @@ def main(omero_json, author_json):
         }, wf)
 
         print(f'Success! {author_json} written')
+
 
 if __name__ == '__main__':
 

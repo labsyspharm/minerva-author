@@ -1,19 +1,14 @@
 """ Render PNG tiles
 """
 import itertools
-try:
-    import pathlib
-except ImportError:
-    import pathlib2 as pathlib
-from PIL import Image
 import numpy as np
-import tifffile
 import json
 import os
 import io
 from threading import Lock
 
 tiff_lock = Lock()
+
 
 def render_tile(opener, level, tx, ty, channel_number, fmt=None):
     with tiff_lock:
@@ -31,34 +26,39 @@ def render_tile(opener, level, tx, ty, channel_number, fmt=None):
 
     return img_io
 
+
 def mix(v1, v2, a):
     return v1 * (1 - a) + v2 * a
 
+
 def hsv2rgba(hsv_buff):
     K = np.array((1, 2/3, 1/3), np.float64)
-    alpha = np.expand_dims(hsv_buff[:,:,3], 2)
-    hue_buff = np.repeat(hsv_buff[:,:,0][:, :, np.newaxis], 3, axis=2)
-    sat_buff = np.repeat(hsv_buff[:,:,1][:, :, np.newaxis], 3, axis=2)
-    val_buff = np.repeat(hsv_buff[:,:,2][:, :, np.newaxis], 3, axis=2)
-    rgb = np.clip(np.abs(np.modf(hue_buff + K)[0] * 6 - 3) - 1, 0, 1);
+    alpha = np.expand_dims(hsv_buff[:, :, 3], 2)
+    hue_buff = np.repeat(hsv_buff[:, :, 0][:, :, np.newaxis], 3, axis=2)
+    sat_buff = np.repeat(hsv_buff[:, :, 1][:, :, np.newaxis], 3, axis=2)
+    val_buff = np.repeat(hsv_buff[:, :, 2][:, :, np.newaxis], 3, axis=2)
+    rgb = np.clip(np.abs(np.modf(hue_buff + K)[0] * 6 - 3) - 1, 0, 1)
     rgb = val_buff * mix(1, rgb, sat_buff)
-    return np.concatenate((rgb,alpha), axis=2)
+    return np.concatenate((rgb, alpha), axis=2)
+
 
 def spike(image):
-    buff = np.zeros(image.shape + (4,), np.float64)
+    buff = np.zeros(image.shape + (4, ), np.float64)
     star_hue = 1/3 + 1/100
     star_sat = 1/7 + 1/1000
     star_val = 1/2 + 1/100
-    buff[:,:,0] = np.modf(image * star_hue)[0]
-    buff[:,:,1] = mix(0.6, 1.0, np.modf(image * star_sat)[0])
-    buff[:,:,2] = mix(0.2, 0.9, np.modf(image * star_val)[0])
-    buff[:,:,3][image != 0] = 1.0
+    buff[:, :, 0] = np.modf(image * star_hue)[0]
+    buff[:, :, 1] = mix(0.6, 1.0, np.modf(image * star_sat)[0])
+    buff[:, :, 2] = mix(0.2, 0.9, np.modf(image * star_val)[0])
+    buff[:, :, 3][image != 0] = 1.0
     return buff
+
 
 def colorize_integer(integer):
     return [
-        int(255*v) for v in hsv2rgba(spike(np.array([[integer]],dtype=np.uint32)))[0][0]
+        int(255*v) for v in hsv2rgba(spike(np.array([[integer]], dtype=np.uint32)))[0][0]
     ][:3]
+
 
 def colorize_mask(target, image):
     ''' Render _image_ in pseudocolor into _target_
@@ -69,6 +69,7 @@ def colorize_mask(target, image):
     rgba_buff = hsv2rgba(spike(image))
     target[:] = np.around(255 * rgba_buff).astype(np.uint8)
     return target
+
 
 def render_u32_tiles(mask_params, tile_size, logger):
     EXT = 'png'

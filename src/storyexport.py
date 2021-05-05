@@ -1,15 +1,18 @@
 import re
-import os, sys
+import os
+import sys
 import pathlib
 from distutils import file_util
 from distutils.errors import DistutilsFileError
 
+
 def label_to_dir(s, empty='0'):
     replaced = re.sub('[^0-9a-zA-Z _-]+', '', s).strip()
-    replaced = replaced.replace(' ','_')
-    replaced = replaced.replace('_','-')
+    replaced = replaced.replace(' ', '_')
+    replaced = replaced.replace('_', '-')
     replaced = re.sub('-+', '-', replaced)
     return empty if replaced == '' else replaced
+
 
 def deduplicate(data_name, data_dict, data_dir):
     """
@@ -23,10 +26,11 @@ def deduplicate(data_name, data_dict, data_dir):
     basename = data_name
     local_path = os.path.join(data_dir, basename)
     while local_path in data_dict.values():
-        root, ext = os.path.splitext(basename) 
+        root, ext = os.path.splitext(basename)
         local_path = os.path.join(data_dir, f'{root}-{n_dups}{ext}')
         n_dups += 1
     return local_path
+
 
 def deduplicate_data(waypoints, data_dir):
     """
@@ -50,11 +54,12 @@ def deduplicate_data(waypoints, data_dir):
 
     return data_dict
 
+
 def deduplicate_dicts(dicts, data_dir='', in_key='label', out_key='label', is_dir=False):
     """
-    Map dictionaries by key to unique labels 
+    Map dictionaries by key to unique labels
     Args:
-        dicts: list of dicts containing input key and output key 
+        dicts: list of dicts containing input key and output key
         data_dir: the full path of the destination directory
         in_key: used for key of output dictionary
         out_key: used for values of output dictionary
@@ -68,52 +73,65 @@ def deduplicate_dicts(dicts, data_dir='', in_key='label', out_key='label', is_di
 
     return data_dict
 
+
 def dedup_index_to_label(dicts):
     dicts_with_index = [
-        {'index':i, 'label': d['label']} for (i,d) in enumerate(dicts)
+        {'index': i, 'label': d['label']} for (i, d) in enumerate(dicts)
     ]
-    return deduplicate_dicts(dicts_with_index, '',
-                            'index', 'label', False)
+    return deduplicate_dicts(dicts_with_index, '', 'index', 'label', False)
+
 
 def dedup_index_to_path(dicts, data_dir=''):
     dicts_with_index = [
-        {'index':i, 'label': d['label']} for (i,d) in enumerate(dicts)
+        {'index': i, 'label': d['label']} for (i, d) in enumerate(dicts)
     ]
-    return deduplicate_dicts(dicts_with_index, data_dir,
-                            'index', 'label', True)
+    return deduplicate_dicts(dicts_with_index, data_dir, 'index', 'label', True)
+
 
 def dedup_label_to_path(dicts, data_dir=''):
     return deduplicate_dicts(dicts, data_dir, 'label', 'label', True)
 
+
 def mask_path_from_index(mask_data, index, data_dir=''):
     return dedup_index_to_path(mask_data, data_dir)[index]
+
 
 def mask_label_from_index(mask_data, index):
     return dedup_index_to_label(mask_data)[index]
 
+
 def group_path_from_label(group_data, label, data_dir=''):
     return dedup_label_to_path(group_data, data_dir)[label]
 
-def create_story_base(title, waypoints, masks):
+
+def get_current_dir():
+    return os.path.dirname(os.path.abspath(sys.argv[0]))
+
+
+def get_story_dir():
+    try:
+        # If running pyinstaller executable, _MEIPASS will contain path to the data directory in tmp
+        story_dir = os.path.join(sys._MEIPASS, 'minerva-story')
+    except Exception:
+        # Not running pyinstaller executable; minerva-story should exist in parent directory
+        story_dir = os.path.join(get_current_dir(), '..', 'minerva-story')
+
+    return story_dir
+
+
+def create_story_base(title, waypoints, masks, folder=''):
     """
     Creates a new minerva-story instance under subfolder named title. The subfolder will be created.
     Args:
         title: Story title, the subfolder will be named
         waypoints: List of waypoints with visData and Masks
         masks: List of masks with names and paths
+        folder: Parent path to contain folders
     """
-    out_dir = get_story_folders(title, True)[0]
+    out_dir = get_story_folders(title, folder, create=True)[0]
+    export_dir = os.path.join(folder, title)
 
-    current_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
-    export_dir = os.path.join(current_dir, title)
-
-    try:
-        # If running pyinstaller executable, _MEIPASS will contain path to the data directory in tmp
-        story_dir = os.path.join(sys._MEIPASS, 'minerva-story')
-    except Exception:
-        # Not running pyinstaller executable; minerva-story should exist in parent directory
-        story_dir = os.path.join(current_dir, '..', 'minerva-story')
-
+    story_dir = get_story_dir()
     data_dir = os.path.join(export_dir, 'data')
     os.makedirs(data_dir, exist_ok=True)
     os.makedirs(out_dir, exist_ok=True)
@@ -125,7 +143,6 @@ def create_story_base(title, waypoints, masks):
         print(e)
 
     vis_path_dict = deduplicate_data(waypoints, data_dir)
-    mask_index_dict = dedup_index_to_path(masks, out_dir)
 
     for i in range(len(masks)):
         path_i = mask_path_from_index(masks, i, out_dir)
@@ -141,16 +158,17 @@ def create_story_base(title, waypoints, masks):
         else:
             print(f'Refusing to copy non-csv infovis: {in_path}')
 
-def get_story_folders(title, create=False):
+
+def get_story_folders(title, folder='', create=False):
     """
     Gets paths to folders where image tiles, json, dat-file and log file must be saved.
     Args:
         title: Story title
+        folder: Parent path to contain folders
         create: Whether folders should be created
 
     Returns: Tuple of images dir, json config dir, json save dir, log dir
     """
-    folder = os.path.dirname(os.path.abspath(sys.argv[0]))
     images_folder = os.path.join(folder, title, 'images')
     out_dir = os.path.join(images_folder, title)
 

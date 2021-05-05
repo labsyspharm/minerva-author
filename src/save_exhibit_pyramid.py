@@ -1,7 +1,6 @@
 import pathlib
 import json
 import os
-import re
 import logging
 import argparse
 from distutils import file_util
@@ -14,9 +13,11 @@ from app import make_groups, make_rows, make_stories
 from app import extract_story_json_stem
 from app import Opener
 
+
 def render(opener, saved, output_dir, logger):
     config_rows = list(make_rows(saved['groups']))
     render_color_tiles(opener, output_dir, 1024, config_rows, logger, None, False)
+
 
 def copy_vis_csv_files(waypoint_data, json_path, output_dir, vis_dir):
     input_dir = json_path.parent
@@ -41,10 +42,12 @@ def copy_vis_csv_files(waypoint_data, json_path, output_dir, vis_dir):
         else:
             print(f'Refusing to copy non-csv infovis: {in_path}')
 
+
 def set_if_not_none(exhibit, key, value):
     if value is not None:
         exhibit[key] = value
     return exhibit
+
 
 def make_exhibit_config(opener, root_url, saved):
 
@@ -77,6 +80,7 @@ def make_exhibit_config(opener, root_url, saved):
 
     return exhibit
 
+
 def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
     FORMATTER = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger('app')
@@ -98,7 +102,6 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
     try:
         with open(author_json) as json_file:
             saved = json.load(json_file)
-        groups = saved['groups']
     except (FileNotFoundError, JSONDecodeError, KeyError) as e:
         logger.error(e)
         logger.error(f'Invalid save file: cannot parse {author_json}')
@@ -120,6 +123,7 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
         json.dump(exhibit_config, wf)
 
     render(opener, saved, output_dir, logger)
+
 
 if __name__ == '__main__':
 

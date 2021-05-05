@@ -1,5 +1,4 @@
 from __future__ import print_function, division
-import warnings
 import sys
 import os
 import re
@@ -153,7 +152,7 @@ def main(in_paths, out_path, is_mask, pixel_size):
             dtype = img_in.dtype
             if dtype == np.uint32:
                 if not is_mask:
-                   error(
+                    error(
                        path,
                        "uint32 images are only supported in --mask mode."
                        " Please contact the authors if you need support for"
@@ -267,8 +266,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "in_paths", metavar="input.tif", type=pathlib.Path, nargs="+",
-        help="List of TIFF files to combine. All images must have the same"
-            " dimensions and pixel type.",
+        help="List of TIFF files to combine. All images must have the same dimensions and pixel type.",
     )
     parser.add_argument(
         "out_path", metavar="output.tif", type=pathlib.Path,

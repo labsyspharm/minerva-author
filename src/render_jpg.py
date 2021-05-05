@@ -1,20 +1,12 @@
 from __future__ import print_function, division
-import sys
 import itertools
 try:
     import pathlib
 except ImportError:
     import pathlib2 as pathlib
-from skimage.exposure import adjust_gamma
 import json
-import numpy as np
-from PIL import Image
-from matplotlib import colors
-import csv
-import json
-import yaml
-import time
 import os
+
 
 def composite_channel(target, image, color, range_min, range_max):
     ''' Render _image_ in pseudocolor and composite into _target_
@@ -26,7 +18,7 @@ def composite_channel(target, image, color, range_min, range_max):
         range_max: Threshhold range maximum, 0-65535
     '''
     f_image = (image.astype('float32') - range_min) / (range_max - range_min)
-    f_image = f_image.clip(0,1, out=f_image)
+    f_image = f_image.clip(0, 1, out=f_image)
     for i, component in enumerate(color):
         target[:, :, i] += f_image * component
 
@@ -39,9 +31,11 @@ def _calculate_total_tiles(opener, tile_size, num_levels):
 
     return tiles
 
+
 def _check_duplicate(group_path, settings, old_rows):
     old_settings = next((row for row in old_rows if row['Group Path'] == group_path), {})
     return settings == old_settings
+
 
 def render_color_tiles(opener, output_dir, tile_size, config_rows, logger, progress_callback=None, allow_cache=True):
     EXT = 'jpg'

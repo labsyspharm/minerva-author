@@ -1,32 +1,32 @@
-from imagecodecs import _zlib # Needed for pyinstaller
-from imagecodecs import _imcd # Needed for pyinstaller
-from imagecodecs import _jpeg8 # Needed for pyinstaller
-from imagecodecs import _jpeg2k # Needed for pyinstaller
-from numcodecs import compat_ext # Needed for pyinstaller
-from numcodecs import blosc # Needed for pyinstaller
+from imagecodecs import _zlib  # Needed for pyinstaller
+from imagecodecs import _imcd  # Needed for pyinstaller
+from imagecodecs import _jpeg8  # Needed for pyinstaller
+from imagecodecs import _jpeg2k  # Needed for pyinstaller
+from numcodecs import compat_ext  # Needed for pyinstaller
+from numcodecs import blosc  # Needed for pyinstaller
 from urllib.parse import unquote
 from pyramid_assemble import main as make_ome
 from concurrent.futures import ThreadPoolExecutor
+import itertools
 import ome_types
 import pathlib
 import re
 import string
 import sys
 import os
+import io
 import csv
 import json
-import math
 import time
 import zarr
+import uuid
 from distutils.errors import DistutilsFileError
 from distutils import file_util
 from tifffile import TiffFile
-from tifffile import create_output
 from tifffile.tifffile import TiffFileError
 import pickle
 import webbrowser
 import numpy as np
-import imagecodecs
 from PIL import Image
 from matplotlib import colors
 from openslide import OpenSlide
@@ -49,6 +49,8 @@ from storyexport import deduplicate_data, label_to_dir
 from storyexport import mask_path_from_index
 from storyexport import mask_label_from_index
 from storyexport import group_path_from_label
+from storyexport import get_current_dir
+from storyexport import get_story_dir
 from flask_cors import CORS, cross_origin
 from pathlib import Path
 from waitress import serve
@@ -65,14 +67,18 @@ if os.name == 'nt':
 PORT = 2020
 
 FORMATTER = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+
 def check_ext(path):
     base, ext1 = os.path.splitext(path)
     ext2 = os.path.splitext(base)[1]
     return ext2 + ext1
 
+
 def tif_path_to_ome_path(path):
     base, ext = os.path.splitext(path)
     return f'{base}.ome{ext}'
+
 
 def extract_story_json_stem(input_file):
     default_out_name = input_file.stem
@@ -80,6 +86,7 @@ def extract_story_json_stem(input_file):
     if (pathlib.Path(default_out_name).suffix in ['.story']):
         default_out_name = pathlib.Path(default_out_name).stem
     return default_out_name
+
 
 def yield_labels(opener, csv_file, chan_label, num_channels):
     label_num = 0
@@ -102,6 +109,7 @@ def yield_labels(opener, csv_file, chan_label, num_channels):
     while label_num < num_channels:
         yield chan_label.get(str(label_num), str(label_num))
         label_num += 1
+
 
 def copy_vis_csv_files(waypoint_data, json_path):
     input_dir = json_path.parent
@@ -127,6 +135,12 @@ def copy_vis_csv_files(waypoint_data, json_path):
         else:
             print(f'Refusing to copy non-csv infovis: {in_path}')
 
+
+def get_empty_path(path):
+    basename = os.path.splitext(path)[0]
+    return pathlib.Path(f'{basename}_tmp.txt')
+
+
 class Opener:
 
     def __init__(self, path):
@@ -144,7 +158,7 @@ class Opener:
             self.ome_version = self._get_ome_version()
             print("OME ", self.ome_version)
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_tifffile_tile(num_channels, 0,0,0,0, 1024)
+            tile_0 = self.get_tifffile_tile(num_channels, 0, 0, 0, 0, 1024)
             if tile_0 is not None:
                 self.default_dtype = tile_0.dtype
 
@@ -175,7 +189,6 @@ class Opener:
         else:
             self.reader = None
 
-
     def _get_ome_version(self):
         try:
             software = self.io.pages[0].tags[305].value
@@ -195,7 +208,7 @@ class Opener:
         if self.ext == '.ome.tif' or self.ext == '.ome.tiff':
             try:
                 metadata = ome_types.from_tiff(self.path)
-            except Exception as e:
+            except Exception:
                 return []
 
             if not metadata or not metadata.images or not metadata.images[0]:
@@ -226,8 +239,8 @@ class Opener:
             nx = int(np.ceil(self.group[level].shape[-1] / tile_size))
             return (nx, ny)
         elif self.reader == 'openslide':
-            l = self.dz.level_count - 1 - level
-            return self.dz.level_tiles[l]
+            reverse_level = self.dz.level_count - 1 - level
+            return self.dz.level_tiles[reverse_level]
 
     def get_shape(self):
         def parse_shape(shape):
@@ -271,7 +284,7 @@ class Opener:
             if len(tile.shape) > 2:
                 # Usually return a 2d tile, return 3d for 1-channel rgb
                 needed_axes = 2 + int(tile.shape[2] > 1)
-                tile = np.squeeze(tile,axis=tuple(range(needed_axes,len(tile.shape))))
+                tile = np.squeeze(tile, axis=tuple(range(needed_axes, len(tile.shape))))
             return tile
         except Exception as e:
             G['logger'].error(e)
@@ -318,68 +331,85 @@ class Opener:
             return Image.fromarray(tile, _format)
 
         elif self.reader == 'openslide':
-            l = self.dz.level_count - 1 - level
-            img = self.dz.get_tile(l, (tx, ty))
+            reverse_level = self.dz.level_count - 1 - level
+            img = self.dz.get_tile(reverse_level, (tx, ty))
             return img
+
+    def generate_mask_tiles(self, filename, mask_params, tile_size, level, tx, ty, should_skip_tiles={}):
+        num_channels = self.get_shape()[0]
+        tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+
+        for image_params in mask_params['images']:
+
+            output_file = str(image_params['out_path'] / filename)
+            if should_skip_tiles.get(output_file, False):
+                continue
+
+            target = np.zeros(tile.shape + (4,), np.uint8)
+            skip_empty_tile = True
+
+            for channel in image_params['settings']['channels']:
+                rgba_color = [int(255 * i) for i in (colors.to_rgba(channel['color']))]
+                ids = channel['ids']
+
+                if len(ids) > 0:
+                    bool_tile = np.isin(tile, ids)
+                    # Signal that we must actually save the image
+                    if not skip_empty_tile or np.any(bool_tile):
+                        skip_empty_tile = False
+                        target[bool_tile] = rgba_color
+                else:
+                    # Handle masks that color cells individually
+                    target = colorize_mask(target, tile)
+                    skip_empty_tile = False
+
+            if skip_empty_tile:
+                empty_file = get_empty_path(output_file)
+                yield {
+                    'img': None,
+                    'empty_file': empty_file
+                }
+            else:
+                img = Image.frombytes('RGBA', target.T.shape[1:], target.tobytes())
+                yield {
+                    'img': img,
+                    'output_file': output_file
+                }
 
     def save_mask_tiles(self, filename, mask_params, logger, tile_size, level, tx, ty):
 
-        should_skip_tile = {}
-
-        def get_empty_path(path):
-            basename = os.path.splitext(path)[0]
-            return pathlib.Path(f'{basename}_tmp.txt')
+        should_skip_tiles = {}
 
         for image_params in mask_params['images']:
 
             output_file = str(image_params['out_path'] / filename)
             path_exists = os.path.exists(output_file) or os.path.exists(get_empty_path(output_file))
-            should_skip = path_exists and image_params['is_up_to_date']
-            should_skip_tile[output_file] = should_skip
+            should_skip = path_exists and image_params.get('is_up_to_date', False)
+            should_skip_tiles[output_file] = should_skip
 
-        if all(should_skip_tile.values()):
+        if all(should_skip_tiles.values()):
             logger.warning(f'Not saving tile level {level} ty {ty} tx {tx}')
             logger.warning(f'Every mask {filename} exists with same rendering settings')
             return
 
         if self.reader == 'tifffile':
-            num_channels = self.get_shape()[0]
-            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+            mask_tiles = self.generate_mask_tiles(
+                filename, mask_params, tile_size, level, tx, ty, should_skip_tiles
+            )
 
-            for image_params in mask_params['images']:
+            for mask_tile in mask_tiles:
+                img = mask_tile.get('img', None)
+                empty_file = mask_tile.get('empty_file', None)
+                output_file = mask_tile.get('output_file', None)
 
-                output_file = str(image_params['out_path'] / filename)
-                if should_skip_tile[output_file]:
-                    continue
-
-                target = np.zeros(tile.shape + (4,), np.uint8)
-                skip_empty_tile = True
-
-                for channel in image_params['settings']['channels']:
-                    rgba_color = [ int(255 * i) for i in (colors.to_rgba(channel['color'])) ]
-                    ids = channel['ids']
-
-                    if len(ids) > 0:
-                        bool_tile = np.isin(tile, ids)
-                        # Signal that we must actually save the image
-                        if not skip_empty_tile or np.any(bool_tile):
-                            skip_empty_tile = False
-                        target[bool_tile] = rgba_color
-                    else:
-                        # Note, any channel without ids to map will override all others
-                        target = colorize_mask(target, tile)
-                        skip_empty_tile = False
-
-                if skip_empty_tile:
-                    empty_file = get_empty_path(output_file)
+                if all([img, output_file]):
+                    img.save(output_file, compress_level=1)
+                elif empty_file is not None:
                     if not os.path.exists(empty_file):
-                        with open(empty_file, 'w') as fp:
+                        with open(empty_file, 'w'):
                             pass
-                else:
-                    img = Image.frombytes('RGBA', target.T.shape[1:], target.tobytes())
-                    img.save(output_file, quality=85)
 
-    def save_tile(self, output_file, settings, tile_size, level, tx, ty):
+    def return_tile(self, output_file, settings, tile_size, level, tx, ty):
         if self.reader == 'tifffile' and self.is_rgba('3 channel'):
 
             num_channels = self.get_shape()[0]
@@ -387,20 +417,18 @@ class Opener:
             tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1, tile_size)
             tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2, tile_size)
             tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
-            tile[:,:,0] = tile_0
-            tile[:,:,1] = tile_1
-            tile[:,:,2] = tile_2
+            tile[:, :, 0] = tile_0
+            tile[:, :, 1] = tile_1
+            tile[:, :, 2] = tile_2
 
-            img = Image.fromarray(tile, 'RGB')
-            img.save(output_file, quality=85)
+            return Image.fromarray(tile, 'RGB')
 
         elif self.reader == 'tifffile' and self.is_rgba('1 channel'):
 
             num_channels = self.get_shape()[0]
             tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
 
-            img = Image.fromarray(tile, 'RGB')
-            img.save(output_file, quality=85)
+            return Image.fromarray(tile, 'RGB')
 
         elif self.reader == 'tifffile':
             target = None
@@ -427,23 +455,28 @@ class Opener:
             if target is not None:
                 np.clip(target, 0, 1, out=target)
                 target_u8 = (target * 255).astype(np.uint8)
-                img = Image.frombytes('RGB', target.T.shape[1:], target_u8.tobytes())
-                img.save(output_file, quality=85)
+                return Image.frombytes('RGB', target.T.shape[1:], target_u8.tobytes())
 
         elif self.reader == 'openslide':
-            l = self.dz.level_count - 1 - level
-            img = self.dz.get_tile(l, (tx, ty))
-            img.save(output_file, quality=85)
+            reverse_level = self.dz.level_count - 1 - level
+            return self.dz.get_tile(reverse_level, (tx, ty))
+
+    def save_tile(self, output_file, settings, tile_size, level, tx, ty):
+        img = self.return_tile(output_file, settings, tile_size, level, tx, ty)
+        img.save(output_file, quality=85)
+
 
 def api_error(status, message):
     return jsonify({
         "error": message
     }), status
 
+
 def reset_globals():
     _g = {
         'logger': logging.getLogger('app'),
         'import_pool': ThreadPoolExecutor(max_workers=1),
+        'preview_cache': {},
         'image_openers': {},
         'mask_openers': {},
         'save_progress': {},
@@ -456,6 +489,7 @@ def reset_globals():
     _g['logger'].addHandler(ch)
     return _g
 
+
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
@@ -465,6 +499,7 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
+
 
 G = reset_globals()
 tiff_lock = multiprocessing.Lock()
@@ -476,6 +511,7 @@ app = Flask(__name__,
 cors = CORS(app)
 app.config['CORS_HEADERS'] = 'Content-Type'
 
+
 def cache_opener(path, opener, key, multi_lock):
     global G
     if isinstance(opener, Opener):
@@ -485,22 +521,26 @@ def cache_opener(path, opener, key, multi_lock):
         return True
     return False
 
+
 def cache_image_opener(path, opener):
     return cache_opener(path, opener, 'image_openers', tiff_lock)
 
+
 def cache_mask_opener(path, opener):
     return cache_opener(path, opener, 'mask_openers', mask_lock)
+
 
 def return_opener(path, key):
     if path not in G[key]:
         try:
             opener = Opener(path)
-            return opener if opener.reader != None else None
+            return opener if opener.reader is not None else None
         except (FileNotFoundError, TiffFileError) as e:
             print(e)
             return None
     else:
         return G[key][path]
+
 
 def convert_mask(path):
     sys.stdout.reconfigure(line_buffering=True)
@@ -526,6 +566,7 @@ def convert_mask(path):
         os.rmdir(tmp_dir)
     print(f'Done creating {ome_path}')
 
+
 def open_input_mask(path, convert=False):
     opener = None
     invalid = True
@@ -536,7 +577,7 @@ def open_input_mask(path, convert=False):
         ome_path = tif_path_to_ome_path(path)
         convertable = os.path.exists(path) and not os.path.exists(ome_path)
         if convert and convertable:
-            executor = G['import_pool'].submit(convert_mask, path)
+            G['import_pool'].submit(convert_mask, path)
         elif os.path.exists(ome_path):
             opener = return_opener(ome_path, 'mask_openers')
             path = ome_path
@@ -544,6 +585,7 @@ def open_input_mask(path, convert=False):
 
     success = cache_mask_opener(path, opener)
     return False if success else invalid
+
 
 def check_mask_opener(path):
     global G
@@ -557,7 +599,7 @@ def check_mask_opener(path):
         opener = G['mask_openers'].get(ome_path)
 
     # Remove invalid openers
-    if not os.path.exists(opener.path) and opener:
+    if opener and not os.path.exists(opener.path):
         mask_lock.acquire()
         opener.close()
         G['mask_openers'].pop(opener.path, None)
@@ -566,6 +608,7 @@ def check_mask_opener(path):
 
     return opener
 
+
 def return_mask_opener(path, convert):
     invalid = True
     if check_mask_opener(path) is None:
@@ -573,10 +616,12 @@ def return_mask_opener(path, convert):
     opener = check_mask_opener(path)
     return (invalid, opener)
 
+
 def return_image_opener(path):
     opener = return_opener(path, 'image_openers')
     success = cache_image_opener(path, opener)
     return (not success, opener)
+
 
 def nocache(view):
     @wraps(view)
@@ -589,6 +634,7 @@ def nocache(view):
         return response
 
     return update_wrapper(no_cache, view)
+
 
 def load_mask_state_subsets(filename):
     all_mask_states = {}
@@ -604,7 +650,7 @@ def load_mask_state_subsets(filename):
                 break
             try:
                 cell_id = int(row.get('CellID', None))
-            except TypeError as e:
+            except TypeError:
                 print(f'Cannot parse CellID in {filename}')
                 continue
 
@@ -642,9 +688,10 @@ def load_mask_state_subsets(filename):
 
     return {
         state: {
-            k: sorted(v) for (k,v) in mask_subsets.items()
+            k: sorted(v) for (k, v) in mask_subsets.items()
         } for (state, mask_subsets) in all_mask_states.items()
     }
+
 
 def reload_all_mask_state_subsets(masks):
     all_mask_state_subsets = {}
@@ -691,6 +738,7 @@ def root():
     """
     return app.send_static_file('index.html')
 
+
 @app.route('/story/<session>/', defaults={'path': 'index.html'})
 @app.route('/story/<session>/<path:path>')
 @cross_origin()
@@ -703,19 +751,39 @@ def out_story(session, path):
         path: any file path in story preview
     Returns: content of any given file
     """
-    # TODO
-    out_name = session
+    cache_dict = G['preview_cache'].get(session, {})
+    path_cache = cache_dict.get(path, None)
 
-    out_yaml = get_story_folders(out_name)[1]
-    out_dir = os.path.dirname(out_yaml or '')
-    out_file = os.path.join(out_dir, path)
+    not_found = '''
+    <html>
+        <head>
+        </head>
+        <body>
+            Please restart Minerva Author and
+            <a href="/">return here</a> to reload your save file.
+        </body>
+    </html>
+    '''
 
-    if not out_yaml or not os.path.exists(out_file):
-        response = make_response('Not found', 404)
-        response.mimetype = "text/plain"
+    if path_cache is None:
+        response = make_response(not_found, 404)
+        response.mimetype = "text/html"
         return response
 
-    return send_file(out_file)
+    args = path_cache.get('args', [])
+    kwargs = path_cache.get('kwargs', {})
+    mimetype = path_cache.get('mimetype', None)
+    function = path_cache.get('function', lambda: None)
+    out_file = function(*args, **kwargs)
+
+    try:
+        if mimetype:
+            return send_file(out_file, mimetype=mimetype)
+        else:
+            return send_file(out_file)
+    except Exception:
+        message = f'Unable to preview {session}/{path}'
+        return api_error(500, message)
 
 
 @app.route('/api/validate/u32/<key>')
@@ -732,7 +800,6 @@ def u32_validate(key):
         ready: whether the ome-tiff version of the path is ready
         path: the ome-tiff version of the path
     """
-    img_io = None
     path = unquote(key)
 
     # Open the input file on the first request only
@@ -773,15 +840,16 @@ def mask_subsets(key):
     mask_states = []
     mask_subsets = []
     for (mask_state, state_subsets) in mask_state_subsets.items():
-        for (k,v) in state_subsets.items():
+        for (k, v) in state_subsets.items():
             mask_states.append(mask_state)
             mask_subsets.append([k, v])
 
     return jsonify({
         'mask_states': mask_states,
         'mask_subsets': mask_subsets,
-        'subset_colors': [ colorize_integer(v[0]) for [k,v] in mask_subsets ]
+        'subset_colors': [colorize_integer(v[0]) for [k, v] in mask_subsets]
     })
+
 
 @app.route('/api/u32/<key>/<level>_<x>_<y>.png')
 @cross_origin()
@@ -805,8 +873,7 @@ def u32_image(key, level, x, y):
     (invalid, opener) = return_mask_opener(path, convert=False)
 
     if isinstance(opener, Opener):
-        img_io = render_tile(opener, int(level),
-                        int(x), int(y), 0, 'RGBA')
+        img_io = render_tile(opener, int(level), int(x), int(y), 0, 'RGBA')
 
     if img_io is None:
         response = make_response('Not found', 404)
@@ -839,8 +906,10 @@ def u16_image(key, channel, level, x, y):
     (invalid, opener) = return_image_opener(path)
 
     if opener and not invalid:
-        img_io = render_tile(opener, int(level),
-                         int(x), int(y), int(channel))
+        img_io = render_tile(
+                             opener, int(level),
+                             int(x), int(y), int(channel)
+                            )
 
     if img_io is None:
         response = make_response('Not found', 404)
@@ -849,19 +918,23 @@ def u16_image(key, channel, level, x, y):
 
     return send_file(img_io, mimetype='image/png')
 
+
 def make_saved_chan(chan):
     # We consider ids too large to store
-    return {k:v for (k,v) in chan.items() if k != 'ids'}
+    return {k: v for (k, v) in chan.items() if k != 'ids'}
+
 
 def make_saved_mask(mask):
-    new_mask = {k:v for (k,v) in mask.items() if k != 'channels'}
+    new_mask = {k: v for (k, v) in mask.items() if k != 'channels'}
     new_mask['channels'] = list(map(make_saved_chan, mask.get('channels', [])))
     return new_mask
 
+
 def make_saved_file(data):
-    new_copy = {k:v for (k,v) in data.items() if k != 'masks'}
+    new_copy = {k: v for (k, v) in data.items() if k != 'masks'}
     new_copy['masks'] = list(map(make_saved_mask, data.get('masks', [])))
     return new_copy
+
 
 @app.route('/api/save/<session>', methods=['POST'])
 @cross_origin()
@@ -874,16 +947,17 @@ def api_save(session):
     Returns: OK on success
 
     """
-    # TODO
-    out_name = session
-
     if request.method == 'POST':
-        # TODO: make sure "in_file" and "csv_file" are sent in data
-        # "in_file" is the "input_image_file"
         data = request.json
         data = make_saved_file(data)
 
-        out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name)
+        root_dir = data['root_dir']
+        out_name = data['out_name']
+
+        if not os.path.exists(root_dir):
+            os.makedirs(root_dir)
+
+        out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name, root_dir)
 
         saved = load_saved_file(out_dat)[0]
         # Only relegate to autosave if save file exists
@@ -909,15 +983,20 @@ def api_save(session):
 
         return 'OK'
 
-def render_progress_callback(current, maximum, key='default'):
-    G['save_progress'][key] = current
-    G['save_progress_max'][key] = maximum
 
-def create_progress_callback(maximum, key='default'):
-    def progress_callback(current):
-        render_progress_callback(current, maximum, key)
+def render_progress_callback(current, maximum, session, key='default'):
+    G['save_progress_max'][session] = G['save_progress_max'].get(session, {})
+    G['save_progress'][session] = G['save_progress'].get(session, {})
+    G['save_progress_max'][session][key] = maximum
+    G['save_progress'][session][key] = current
+
+
+def create_progress_callback(maximum, session='default', key='default'):
+    def progress_callback(_current, _maximum=maximum):
+        render_progress_callback(_current, _maximum, session, key)
     progress_callback(0)
     return progress_callback
+
 
 @app.route('/api/render/<session>/progress', methods=['GET'])
 @cross_origin()
@@ -929,13 +1008,12 @@ def get_render_progress(session):
         session: unique string identifying save output
     Returns: JSON which contains progress and max
     """
-    # TODO: actually implement something here
-    out_name = session
 
     return jsonify({
-        "progress": sum(G['save_progress'].values()),
-        "max": sum(G['save_progress_max'].values())
+        "progress": sum(G['save_progress'].get(session, {}).values()),
+        "max": sum(G['save_progress_max'].get(session, {}).values())
     })
+
 
 def format_arrow(a):
     return {
@@ -945,6 +1023,7 @@ def format_arrow(a):
         'Angle': 60 if a['angle'] == '' else a['angle']
     }
 
+
 def format_overlay(o):
     return {
         'x': o[0],
@@ -952,6 +1031,7 @@ def format_overlay(o):
         'width': o[2],
         'height': o[3]
     }
+
 
 def make_waypoints(d, mask_data, vis_path_dict={}):
 
@@ -981,12 +1061,14 @@ def make_waypoints(d, mask_data, vis_path_dict={}):
 
         yield wp
 
+
 def make_stories(d, mask_data=[], vis_path_dict={}):
     return [{
         'Name': '',
         'Description': '',
         'Waypoints': list(make_waypoints(d, mask_data, vis_path_dict))
     }]
+
 
 def make_mask_yaml(mask_data):
     for (i, mask) in enumerate(mask_data):
@@ -997,13 +1079,14 @@ def make_mask_yaml(mask_data):
             'Channels': [c['label'] for c in mask['channels']]
         }
 
+
 def make_group_path(groups, group):
     c_path = '--'.join(
         str(c['id']) + '__' + label_to_dir(c['label'])
         for c in group['channels']
     )
     g_path = group_path_from_label(groups, group['label'])
-    return  g_path + '_' + c_path
+    return g_path + '_' + c_path
 
 
 def make_groups(d):
@@ -1014,6 +1097,7 @@ def make_groups(d):
             'Colors': [c['color'] for c in group['channels']],
             'Channels': [c['label'] for c in group['channels']]
         }
+
 
 def make_rows(d):
     for group in d:
@@ -1026,11 +1110,60 @@ def make_rows(d):
             'Color': ['#' + c['color'] for c in channels]
         }
 
-def make_exhibit_config(opener, out_name, json):
 
-    data = json['groups']
-    mask_data = json['masks']
-    waypoint_data = json['waypoints']
+def make_mask_rows(out_dir, mask_data, session):
+    all_mask_params = {}
+
+    for (i, mask) in enumerate(mask_data):
+
+        mask_params = {
+            'opener': None,
+            'images': []
+        }
+        mask_path = mask['path']
+
+        if mask_path in all_mask_params:
+            mask_params = all_mask_params[mask_path]
+        else:
+            # Open the input file without allowing any conversion
+            (invalid, mask_opener) = return_mask_opener(mask_path, convert=False)
+            mask_params['opener'] = mask_opener
+
+        if isinstance(mask_params['opener'], Opener):
+            mask_opener = mask_params['opener']
+            num_levels = mask_opener.get_shape()[1]
+            mask_total = _calculate_total_tiles(mask_opener, 1024, num_levels)
+            mask_params['images'].append({
+                'settings': {
+                    'channels': [{
+                        'ids': c['ids'],
+                        'color': '#'+c['color']
+                    } for c in mask['channels']],
+                    'source': str(mask_path)
+                },
+                'progress': create_progress_callback(mask_total, session, str(i)),
+                'out_path': pathlib.Path(mask_path_from_index(mask_data, i, out_dir))
+            })
+            all_mask_params[mask_path] = mask_params
+        else:
+            print(f'Unable to access mask at {mask_path}')
+
+    return all_mask_params.values()
+
+
+def write_json_file(data):
+    bytes_io = io.BytesIO()
+    data_bytes = str.encode(json.dumps(data))
+    bytes_io.write(data_bytes)
+    bytes_io.seek(0)
+    return bytes_io
+
+
+def make_exhibit_config(opener, out_name, data):
+
+    mask_data = data['masks']
+    group_data = data['groups']
+    waypoint_data = data['waypoints']
     vis_path_dict = deduplicate_data(waypoint_data, 'data')
 
     (num_channels, num_levels, width, height) = opener.get_shape()
@@ -1038,20 +1171,179 @@ def make_exhibit_config(opener, out_name, json):
     _config = {
         'Images': [{
             'Name': 'i0',
-            'Description': json['image']['description'],
+            'Description': data['image']['description'],
             'Path': 'images/' + out_name,
             'Width': width,
             'Height': height,
             'MaxLevel': num_levels - 1
         }],
-        'Header': json['header'],
-        'Rotation': json['rotation'],
+        'Header': data['header'],
+        'Rotation': data['rotation'],
         'Layout': {'Grid': [['i0']]},
         'Stories': make_stories(waypoint_data, mask_data, vis_path_dict),
         'Masks': list(make_mask_yaml(mask_data)),
-        'Groups': list(make_groups(data))
+        'Groups': list(make_groups(group_data))
     }
     return _config
+
+
+def render_image_tile(output_file, settings, **kwargs):
+    tile_size = kwargs.get('tile_size', 1024)
+    level = kwargs.get('level', 0)
+    tx = kwargs.get('tx', 0)
+    ty = kwargs.get('ty', 0)
+    opener = kwargs['opener']
+    img = opener.return_tile(output_file, settings, tile_size, level, tx, ty)
+    img_io = io.BytesIO()
+    img.save(img_io, 'JPEG', quality=85)
+    img_io.seek(0)
+    return img_io
+
+
+def add_image_tiles_to_dict(cache_dict, config_rows, opener, out_dir_rel):
+    output_path = pathlib.Path(out_dir_rel)
+    ext = 'jpg'
+
+    for settings in config_rows:
+        num_levels = opener.get_shape()[1]
+        group_dir = settings.get('Group Path', None)
+        if group_dir is None:
+            print('Missing group path for image')
+            continue
+        # Cache tile parameters for every tile
+        for level in range(num_levels):
+            (nx, ny) = opener.get_level_tiles(level, 1024)
+            for ty, tx in itertools.product(range(0, ny), range(0, nx)):
+                filename = '{}_{}_{}.{}'.format(level, tx, ty, ext)
+                output_file = str(output_path / group_dir / filename)
+                cache_dict[output_file] = {
+                    "function": render_image_tile,
+                    "mimetype": f'image/{ext}',
+                    "args": [output_file, settings],
+                    "kwargs": {
+                        'opener': opener,
+                        'tile_size': 1024,
+                        'level': level,
+                        'tx': tx,
+                        'ty': ty
+                    }
+                }
+
+    return cache_dict
+
+
+def render_mask_tile(filename, mask_params, **kwargs):
+    tile_size = kwargs.get('tile_size', 1024)
+    level = kwargs.get('level', 0)
+    tx = kwargs.get('tx', 0)
+    ty = kwargs.get('ty', 0)
+    opener = mask_params['opener']
+    # We except the mask params to only contain one image
+    mask_tiles = opener.generate_mask_tiles(
+        filename, mask_params, tile_size, level, tx, ty
+    )
+    img = next(mask_tiles, {}).get('img', None)
+    img_io = io.BytesIO()
+    if img is not None:
+        img.save(img_io, 'PNG', compress_level=1)
+    img_io.seek(0)
+    return img_io
+
+
+def add_mask_tiles_to_dict(cache_dict, mask_config_rows):
+    all_mask_params = []
+    ext = 'png'
+    # Mask params must by no longer optimized for saving
+    for mask_params in mask_config_rows:
+        # Unpack all images from all mask params
+        for image_params in mask_params.get('images', []):
+            mask_params_copy = {
+                'opener': mask_params['opener'],
+                'images': [image_params]
+            }
+            all_mask_params.append(mask_params_copy)
+
+    for mask_params in all_mask_params:
+        opener = mask_params['opener']
+        num_levels = opener.get_shape()[1]
+        image_params = mask_params.get('images', [None])[0]
+        output_path = image_params.get('out_path', None)
+        if not all([image_params, output_path]):
+            print('Missing image path for mask')
+            continue
+        # Cache tile parameters for every tile
+        for level in range(num_levels):
+            (nx, ny) = opener.get_level_tiles(level, 1024)
+            for ty, tx in itertools.product(range(0, ny), range(0, nx)):
+                filename = '{}_{}_{}.{}'.format(level, tx, ty, ext)
+                output_file = str(output_path / filename)
+                cache_dict[output_file] = {
+                    "function": render_mask_tile,
+                    "mimetype": f'image/{ext}',
+                    "args": [filename, mask_params],
+                    "kwargs": {
+                        'tile_size': 1024,
+                        'level': level,
+                        'tx': tx,
+                        'ty': ty
+                    }
+                }
+
+    return cache_dict
+
+
+@app.route('/api/preview/<session>', methods=['POST'])
+@cross_origin()
+@nocache
+def api_preview(session):
+    """
+    Caches all preview parameters for given session
+    Args:
+        session: unique string identifying save output
+    Returns: OK on success
+
+    """
+    global G
+
+    cache_dict = {}
+
+    if request.method == 'POST':
+
+        path = request.json['in_file']
+        out_name = request.json['out_name']
+        (invalid, opener) = return_image_opener(path)
+        # Ensure path is relative to output directory
+        out_dir_rel = get_story_folders(out_name, '')[0]
+        out_dir_rel = pathlib.Path(*pathlib.Path(out_dir_rel).parts[1:])
+
+        if invalid or not opener:
+            return api_error(404, 'Image file not found: ' + str(path))
+
+        config_rows = list(make_rows(request.json['groups']))
+        mask_config_rows = list(make_mask_rows(out_dir_rel, request.json['masks'],
+                                session))
+        exhibit_config = make_exhibit_config(opener, out_name, request.json)
+        cache_dict['exhibit.json'] = {
+            "function": write_json_file,
+            "args": [exhibit_config],
+            "mimetype": 'text/json'
+        }
+        index_filename = os.path.join(get_story_dir(), 'index.html')
+        cache_dict['index.html'] = {
+            "function": lambda: index_filename
+        }
+
+        vis_path_dict = deduplicate_data(request.json['waypoints'], 'data')
+        for in_path, out_path in vis_path_dict.items():
+            cache_dict[out_path] = {
+                "function": lambda: in_path
+            }
+
+        cache_dict = add_mask_tiles_to_dict(cache_dict, mask_config_rows)
+        cache_dict = add_image_tiles_to_dict(cache_dict, config_rows, opener, out_dir_rel)
+
+        G['preview_cache'][session] = cache_dict
+        return 'OK'
 
 
 @app.route('/api/render/<session>', methods=['POST'])
@@ -1068,14 +1360,14 @@ def api_render(session):
     G['save_progress'] = {}
     G['save_progress_max'] = {}
 
-    # TODO
-    out_name = session
-
     if request.method == 'POST':
 
         path = request.json['in_file']
+        root_dir = request.json['root_dir']
+        out_name = request.json['out_name']
+
         (invalid, opener) = return_image_opener(path)
-        out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name)
+        out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name, root_dir)
 
         if invalid or not opener:
             return api_error(404, 'Image file not found: ' + str(path))
@@ -1083,58 +1375,25 @@ def api_render(session):
         data = request.json['groups']
         mask_data = request.json['masks']
         waypoint_data = request.json['waypoints']
-        create_story_base(out_name, waypoint_data, mask_data)
         config_rows = list(make_rows(data))
+        create_story_base(out_name, waypoint_data, mask_data, folder=root_dir)
         exhibit_config = make_exhibit_config(opener, out_name, request.json)
 
         with open(out_yaml, 'w') as wf:
             json.dump(exhibit_config, wf)
 
-        all_mask_params = {}
-
-        for (i, mask) in enumerate(mask_data):
-
-            mask_params = {
-                'opener': None,
-                'images': []
-            }
-            mask_path = mask['path']
-
-            if mask_path in all_mask_params:
-                mask_params = all_mask_params[mask_path]
-            else:
-                # Open the input file without allowing any conversion
-                (invalid, mask_opener) = return_mask_opener(mask_path, convert=False)
-                mask_params['opener'] = mask_opener
-
-            if isinstance(mask_params['opener'], Opener):
-                mask_opener = mask_params['opener']
-                num_levels = mask_opener.get_shape()[1]
-                mask_total = _calculate_total_tiles(mask_opener, 1024, num_levels)
-                mask_params['images'].append({
-                    'settings': {
-                        'channels': [{
-                            'ids': c['ids'],
-                            'color': '#'+c['color']
-                        } for c in mask['channels']],
-                        'source': str(mask_path)
-                    },
-                    'progress': create_progress_callback(mask_total, i),
-                    'out_path': pathlib.Path(mask_path_from_index(mask_data, i, out_dir))
-                })
-                all_mask_params[mask_path] = mask_params
-            else:
-                print(f'Skipping render of {mask_path}')
+        mask_config_rows = make_mask_rows(out_dir, mask_data, session)
 
         # Render all uint16 image channels
         render_color_tiles(opener, out_dir, 1024, config_rows, G['logger'],
-                           progress_callback=render_progress_callback)
+                           progress_callback=create_progress_callback(0, session))
 
         # Render all uint32 segmentation masks
-        for mask_params in all_mask_params.values():
+        for mask_params in mask_config_rows:
             render_u32_tiles(mask_params, 1024, G['logger'])
 
         return 'OK'
+
 
 @app.route('/api/import/groups', methods=['POST'])
 @cross_origin()
@@ -1154,6 +1413,7 @@ def api_import_groups():
             'groups': saved['groups']
         })
 
+
 def load_saved_file(input_file):
     saved = None
     autosaved = None
@@ -1162,7 +1422,7 @@ def load_saved_file(input_file):
         return (None, None)
 
     if input_path.suffix == '.dat':
-        saved = pickle.load( open( input_path, "rb" ) )
+        saved = pickle.load(open(input_path, "rb"))
     else:
         with open(input_path) as json_file:
             saved = json.load(json_file)
@@ -1170,15 +1430,18 @@ def load_saved_file(input_file):
 
     return (saved, autosaved)
 
+
 def copy_saved_states(from_save, to_save):
     saved_keys = [
-        'sample_info', 'waypoints', 'groups', 'masks'
+        'sample_info', 'waypoints', 'groups', 'masks',
+        'in_file', 'csv_file', 'root_dir'
     ]
     for saved_key in saved_keys:
         if saved_key in from_save:
             to_save[saved_key] = from_save[saved_key]
 
     return to_save
+
 
 def is_new_autosave(saved, autosaved):
     if saved is None or autosaved is None:
@@ -1197,6 +1460,7 @@ def is_new_autosave(saved, autosaved):
         # Malformed autosave
         return False
 
+
 @app.route('/api/import', methods=['POST'])
 @cross_origin()
 @nocache
@@ -1209,6 +1473,7 @@ def api_import():
         input_file = pathlib.Path(data['filepath'])
         input_image_file = pathlib.Path(data['filepath'])
         loading_saved_file = input_file.suffix in ['.dat', '.json']
+        root_dir = get_current_dir()
 
         if not os.path.exists(input_file):
             return api_error(404, 'Image file not found: ' + str(input_file))
@@ -1220,6 +1485,7 @@ def api_import():
             autosave_error = autosave_logic == "ask"
 
             (saved, autosaved) = load_saved_file(input_file)
+            root_dir = os.path.dirname(input_file)
 
             if is_new_autosave(saved, autosaved):
                 # We need to know whether to use autosave file
@@ -1231,6 +1497,7 @@ def api_import():
                     saved = copy_saved_states(autosaved, saved)
 
             input_image_file = pathlib.Path(saved['in_file'])
+
             if (data['csvpath']):
                 csv_file = pathlib.Path(data['csvpath'])
                 if not os.path.exists(csv_file):
@@ -1258,7 +1525,7 @@ def api_import():
         if out_name == '':
             out_name = default_out_name
 
-        out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name)
+        out_dir, out_yaml, out_dat, out_log = get_story_folders(out_name, root_dir)
 
         if not loading_saved_file and os.path.exists(out_dat):
             action = 'OUT ASK ERR'
@@ -1268,7 +1535,7 @@ def api_import():
             if not os.path.samefile(input_file, out_dat):
                 action = 'OUT ASK ERR'
                 verb = 'provide an' if out_name == default_out_name else 'change the'
-                command = f'Please {verb} output name or directly load {out_dat}';
+                command = f'Please {verb} output name or directly load {out_dat}'
                 return api_error(400, f'{action}: {command}, as that file already exists.')
 
         opener = None
@@ -1287,12 +1554,12 @@ def api_import():
             response['width'] = width
 
         except Exception as e:
-            print (e)
+            print(e)
             return api_error(500, 'Invalid tiff file')
 
         try:
             labels = list(yield_labels(opener, csv_file, chan_label, num_channels))
-        except Exception as e:
+        except Exception:
             return api_error(500, "Error in loading channel marker names")
 
         fh = logging.FileHandler(str(out_log))
@@ -1308,7 +1575,9 @@ def api_import():
         return jsonify({
             'loaded': True,
             'channels': labels,
-            'session': out_name, #TODO
+            'out_name': out_name,
+            'root_dir': str(root_dir),
+            'session': uuid.uuid4().hex,
             'output_save_file': str(out_dat),
             'marker_csv_file': str(csv_file),
             'input_image_file': str(input_image_file),
@@ -1327,6 +1596,7 @@ def api_import():
             'warning': opener.warning if opener else '',
             'rgba': opener.is_rgba() if opener else False
         })
+
 
 @app.route('/api/filebrowser', methods=['GET'])
 @cross_origin()
@@ -1358,8 +1628,10 @@ def file_browser():
         "path": str(folder)
     }
 
-    # Windows: When navigating back from drive root, we have to show a list of available drives
-    if os.name == 'nt' and folder is not None and str(orig_folder) == str(folder) and parent == 'true':
+    # Windows: When navigating back from drive root
+    # we have to show a list of available drives
+    is_win_dir = (os.name == 'nt' and folder is not None)
+    if is_win_dir and str(orig_folder) == str(folder) and parent == 'true':
         match = re.search('[A-Za-z]:\\\\$', str(folder))  # C:\ or D:\ etc.
         if match:
             drives = _get_drives_win()
@@ -1391,19 +1663,22 @@ def file_browser():
                     new_entry["size"] = stat_result.st_size
                     new_entry["ctime"] = stat_result.st_ctime
                     new_entry["mtime"] = stat_result.st_mtime
-                except FileNotFoundError as e:
+                except FileNotFoundError:
                     is_broken = True
 
             if not is_hidden and not is_broken:
                 response["entries"].append(new_entry)
-        except PermissionError as e:
+        except PermissionError:
             pass
 
     return jsonify(response)
 
-# Returns a list of drive letters in Windows
-# https://stackoverflow.com/a/827398
+
 def _get_drives_win():
+    '''
+    Returns a list of drive letters in Windows
+    https://stackoverflow.com/a/827398
+    '''
     drives = []
     bitmask = windll.kernel32.GetLogicalDrives()
     for letter in string.ascii_uppercase:
@@ -1413,6 +1688,7 @@ def _get_drives_win():
 
     return drives
 
+
 def close_tiff():
     print("Closing tiff files")
     for opener in G['image_openers'].values():
@@ -1420,6 +1696,7 @@ def close_tiff():
             opener.close()
         except Exception as e:
             print(e)
+
 
 def close_masks():
     print("Closing mask files")
@@ -1429,6 +1706,7 @@ def close_masks():
         except Exception as e:
             print(e)
 
+
 def close_import_pool():
     print("Closing import pool")
     if G['import_pool'] is not None:
@@ -1437,8 +1715,10 @@ def close_import_pool():
         except Exception as e:
             print(e)
 
+
 def open_browser():
     webbrowser.open_new('http://127.0.0.1:' + str(PORT) + '/')
+
 
 if __name__ == '__main__':
     Timer(1, open_browser).start()
