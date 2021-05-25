@@ -52,7 +52,7 @@ jobs:
         if: startsWith(matrix.os,'mac')
         shell: bash -l {0}
         run: |
-          ./package_mac.sh
+          bash package_mac.sh
           mv dist minerva_author
           mv minerva_author/app minerva_author/minerva_author
           zip minerva_author.zip minerva_author
