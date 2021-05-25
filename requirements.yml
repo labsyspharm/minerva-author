@@ -4,6 +4,7 @@ channels:
 dependencies:
   - numpy=1.19.4
   - pillow=8.1.1
+  - imagecodecs=2020.5.30
   - zarr
   - cython
   - scikit-image
@@ -15,7 +16,6 @@ dependencies:
       - matplotlib>=3.3.3
       - ome-types>=0.2.4
       - tifffile>=2020.12.4
-      - imagecodecs>=2020.5.30
       - openslide-python>=1.1.2
       - waitress>=1.4.4
       - opencv-python
