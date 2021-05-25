@@ -16,6 +16,8 @@ jobs:
       - uses: conda-incubator/setup-miniconda@v2
         with:
           auto-update-conda: true
+          environment-file: requirements.yml
+          activate-environment: build-environment
           python-version: ${{ matrix.python-version }}
       - name: OpenSlide Windows
         if: startsWith(matrix.os,'windows')
@@ -33,30 +35,9 @@ jobs:
       - name: Update the Minerva Story submodule
         run: |
           git submodule update --init --recursive
-      - name: Create conda environment
+      - name: Install Minerva Lib
         run: |
-          conda config --set always_yes yes --set changeps1 no
-          conda config --add channels conda-forge
-          conda update -q conda
-          conda info -a
-          conda create -q -n build-environment python=${{ matrix.python-version }} nomkl
-      - name: Conda activate on Windows
-        if: startsWith(matrix.os,'windows')
-        shell: cmd /C CALL {0}
-        run: |
-          conda activate build-environment
-      - name: Conda activate on MacOS
-        if: startsWith(matrix.os,'mac')
-        shell: bash -l {0}
-        run: |
-          conda init bash
-          conda activate build-environment
-      - name: Install conda and pip dependencies
-        run: |
-          conda install -c conda-forge "numpy>=1.18" "matplotlib==3.2.2" cython
-          pip install -r requirements.txt
-          conda install scikit-image
-          conda install zarr
+          pip install git+https://github.com/labsyspharm/minerva-lib-python@master#egg=minerva-lib
       - name: Copy dlls on Windows
         if: startsWith(matrix.os,'windows')
         shell: cmd /C CALL {0}
