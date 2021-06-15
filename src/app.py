@@ -23,6 +23,7 @@ import uuid
 from distutils.errors import DistutilsFileError
 from distutils import file_util
 from tifffile import TiffFile
+from tifffile import TiffPageSeries
 from tifffile.tifffile import TiffFileError
 import pickle
 import webbrowser
@@ -141,6 +142,36 @@ def get_empty_path(path):
     return pathlib.Path(f'{basename}_tmp.txt')
 
 
+class ZarrWrapper:
+
+    def __init__(self, group, dimensions):
+
+        self.group = group
+        self.dim_list = dimensions
+
+    def __getitem__(self, full_idx_list):
+        '''
+        Access zarr groups as if in a standard dimension order
+        Args:
+            full_idx_list: level, x range, y range, z index, channel number, timestep
+        '''
+
+        level = full_idx_list[0]
+        key_list = ['X', 'Y', 'Z', 'C', 'T']
+        key_dict = {k:v+1 for v,k in enumerate(key_list)}
+
+        idx_order_list = [key_dict[key] for key in self.dim_list if key in key_dict]
+        idx_value_list = tuple(full_idx_list[order] for order in idx_order_list)
+
+        tile = self.group[level].__getitem__(idx_value_list)
+
+        if len(tile.shape) > 2:
+            # Return a 2d tile unless chosen channel has RGB
+            needed_axes = 2 + int(tile.shape[2] > 1)
+            tile = np.squeeze(tile, axis=tuple(range(needed_axes, len(tile.shape))))
+
+        return tile
+
 class Opener:
 
     def __init__(self, path):
@@ -152,12 +183,22 @@ class Opener:
         self.default_dtype = np.uint16
 
         if self.ext == '.ome.tif' or self.ext == '.ome.tiff':
-            self.io = TiffFile(self.path, is_ome=False)
-            self.group = zarr.open(self.io.series[0].aszarr())
             self.reader = 'tifffile'
+            self.io = TiffFile(self.path)
             self.ome_version = self._get_ome_version()
+            if self.ome_version == 5:
+                self.io = TiffFile(self.path, is_ome=False)
+            self.group = zarr.open(self.io.series[0].aszarr())
+            # Treat non-pyramids as groups of one array
+            if isinstance(self.group, zarr.core.Array):
+                root = zarr.group()
+                root[0] = self.group
+                self.group = root
             print("OME ", self.ome_version)
             num_channels = self.get_shape()[0]
+            dimensions = self.io.series[0].get_axes()
+            self.wrapper = ZarrWrapper(self.group, dimensions)
+
             tile_0 = self.get_tifffile_tile(num_channels, 0, 0, 0, 0, 1024)
             if tile_0 is not None:
                 self.default_dtype = tile_0.dtype
@@ -204,23 +245,30 @@ class Opener:
             print(e)
             return 5
 
-    def load_xml_markers(self):
+    def read_metadata(self):
         if self.ext == '.ome.tif' or self.ext == '.ome.tiff':
             try:
                 metadata = ome_types.from_tiff(self.path)
             except Exception:
-                return []
+                return None
 
             if not metadata or not metadata.images or not metadata.images[0]:
-                return []
+                return None
 
-            metadata_pixels = metadata.images[0].pixels
-            if not metadata_pixels or not metadata_pixels.channels:
-                return []
+            return metadata
 
-            return [c.name for c in metadata_pixels.channels]
-        else:
+        return None
+
+    def load_xml_markers(self):
+        metadata = self.read_metadata()
+        if not metadata:
             return []
+
+        metadata_pixels = metadata.images[0].pixels
+        if not metadata_pixels or not metadata_pixels.channels:
+            return []
+
+        return [c.name for c in metadata_pixels.channels if c.name]
 
     def close(self):
         self.io.close()
@@ -275,16 +323,8 @@ class Opener:
         ix = tx * tilesize
         iy = ty * tilesize
 
-        num_channels = self.get_shape()[0]
         try:
-            if num_channels == 1:
-                tile = self.group[level][iy:iy+tilesize, ix:ix+tilesize]
-            else:
-                tile = self.group[level][channel_number, iy:iy+tilesize, ix:ix+tilesize]
-            if len(tile.shape) > 2:
-                # Usually return a 2d tile, return 3d for 1-channel rgb
-                needed_axes = 2 + int(tile.shape[2] > 1)
-                tile = np.squeeze(tile, axis=tuple(range(needed_axes, len(tile.shape))))
+            tile = self.wrapper[level, ix:ix+tilesize, iy:iy+tilesize, 0, channel_number, 0]
             return tile
         except Exception as e:
             G['logger'].error(e)
