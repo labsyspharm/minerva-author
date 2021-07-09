@@ -236,11 +236,8 @@ class Opener:
             sub_ifds = self.io.pages[0].tags[330].value
             if "Faas" in software or sub_ifds is None:
                 return 5
-
-            m = re.search('OME\\sBio-Formats\\s(\\d+)\\.\\d+\\.\\d+', software)
-            if m is None:
-                return 5
-            return int(m.group(1))
+            else:
+                return 6
         except Exception as e:
             print(e)
             return 5
