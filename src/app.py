@@ -146,7 +146,10 @@ class ZarrWrapper:
     def __init__(self, group, dimensions):
 
         self.group = group
-        self.dim_list = dimensions
+        dim_alias = {
+            'I': 'C'
+        }
+        self.dim_list = [dim_alias.get(d, d) for d in dimensions]
 
     def __getitem__(self, full_idx_list):
         """
