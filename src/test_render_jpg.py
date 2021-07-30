@@ -1,31 +1,36 @@
-import os
-from render_jpg import render_color_tiles
-from app import Opener
-from skimage import io
 import logging
+import os
+
+from skimage import io
+
+from app import Opener
+from render_jpg import render_color_tiles
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 
 def test_ome_tif_rendered_output():
-    logger = logging.getLogger('app')
-    filepath = '../testimages/2048x2048_ome6_tiled.ome.tif'
-    group_dir = 'group_label_0__DAPI--1__panCK--2__S100'
+    logger = logging.getLogger("app")
+    filepath = "../testimages/2048x2048_ome6_tiled.ome.tif"
+    group_dir = "group_label_0__DAPI--1__panCK--2__S100"
     opener = Opener(filepath)
     groups = [
         {
-            'Group Path': group_dir,
-            'Channel Number': ['0', '1', '2'],
-            'High': [65535, 65535, 65535],
-            'Low': [0, 0, 0],
-            'Color': [
-                [1.0, 0, 0, 1.0],
-                [0, 1.0, 0, 1.0],
-                [0, 0, 1.0, 1.0]
-            ]
+            "Group Path": group_dir,
+            "Channel Number": ["0", "1", "2"],
+            "High": [65535, 65535, 65535],
+            "Low": [0, 0, 0],
+            "Color": [[1.0, 0, 0, 1.0], [0, 1.0, 0, 1.0], [0, 0, 1.0, 1.0]],
         }
     ]
-    render_color_tiles(opener, output_dir="tmp", tile_size=1024, config_rows=groups, logger=logger, progress_callback=None)
+    render_color_tiles(
+        opener,
+        output_dir="tmp",
+        tile_size=1024,
+        config_rows=groups,
+        logger=logger,
+        progress_callback=None,
+    )
 
     filename = os.path.join("tmp", group_dir, "1_0_0.jpg")
     img = io.imread(filename)
