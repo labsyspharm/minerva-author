@@ -54,7 +54,7 @@ bash package_mac.sh
 
 #### Windows (powershell)
 
-Fetch OpenSlide  from https://openslide.org/download/#windows-binaries and save the .dll files to /src. Then run script:
+Fetch OpenSlide binaries from https://openslide.org/download/#windows-binaries and save the .dll files to /src. Then run script:
 ```
 package_win.bat
 ```
