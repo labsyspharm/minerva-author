@@ -386,7 +386,7 @@ class Opener:
             skip_empty_tile = True
 
             for channel in image_params['settings']['channels']:
-                rgba_color = [int(255 * i) for i in (colors.to_rgba(channel['color']))]
+                rgba_color = [int(255 * i) for i in (colors.to_rgba(channel['color'], channel['opacity']))]
                 ids = channel['ids']
 
                 if len(ids) > 0:
@@ -397,7 +397,7 @@ class Opener:
                         target[bool_tile] = rgba_color
                 else:
                     # Handle masks that color cells individually
-                    target = colorize_mask(target, tile)
+                    target = colorize_mask(target, tile, channel['opacity'])
                     skip_empty_tile = False
 
             if skip_empty_tile:
@@ -1174,7 +1174,8 @@ def make_mask_rows(out_dir, mask_data, session):
                 'settings': {
                     'channels': [{
                         'ids': c['ids'],
-                        'color': '#'+c['color']
+                        'color': '#'+c['color'],
+                        'opacity': c['opacity']
                     } for c in mask['channels']],
                     'source': str(mask_path)
                 },
