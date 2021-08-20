@@ -4,6 +4,11 @@ import re
 import sys
 from distutils import file_util
 from distutils.errors import DistutilsFileError
+from create_vega import (
+    create_vega_csv,
+    modify_default,
+    modify_matrix,
+)
 
 
 def label_to_dir(s, empty="0"):
@@ -32,6 +37,23 @@ def deduplicate(data_name, data_dict, data_dir):
     return local_path
 
 
+def lookup_vis_data_type(waypoints, lookup_path):
+    """
+    Return visualization type for given data path
+    """
+    lookup_dict = dict()
+    for waypoint in waypoints:
+        for vis in ["VisScatterplot", "VisMatrix"]:
+            if vis in waypoint:
+                data_path = waypoint[vis]["data"]
+                lookup_dict[data_path] = vis
+        if "VisBarChart" in waypoint:
+            data_path = waypoint["VisBarChart"]
+            lookup_dict[data_path] = "VisBarChart"
+
+    return lookup_dict.get(lookup_path, None)
+
+
 def deduplicate_data(waypoints, data_dir):
     """
     Map filesystem paths to local data paths
@@ -41,7 +63,7 @@ def deduplicate_data(waypoints, data_dir):
     """
     data_dict = dict()
     for waypoint in waypoints:
-        for vis in ["VisScatterplot", "VisCanvasScatterplot", "VisMatrix"]:
+        for vis in ["VisScatterplot", "VisMatrix"]:
             if vis in waypoint:
                 data_path = waypoint[vis]["data"]
                 data_name = os.path.basename(data_path)
@@ -153,12 +175,19 @@ def create_story_base(title, waypoints, masks, folder=""):
     for in_path, out_path in vis_path_dict.items():
         if pathlib.Path(in_path).suffix in [".csv"]:
             try:
-                file_util.copy_file(in_path, out_path)
+                copy_vega_csv(waypoints, in_path, out_path)
             except DistutilsFileError as e:
                 print(f"Cannot copy {in_path}")
                 print(e)
         else:
             print(f"Refusing to copy non-csv infovis: {in_path}")
+
+
+def copy_vega_csv(waypoint_data, in_path, out_path):
+    vis_fn_dict = {"VisMatrix": modify_matrix}
+    vis_type = lookup_vis_data_type(waypoint_data, in_path)
+    fn = vis_fn_dict.get(vis_type, modify_default)
+    return create_vega_csv(in_path, out_path, fn)
 
 
 def get_story_folders(title, folder="", create=False):

@@ -13,6 +13,12 @@ import json
 import logging
 import multiprocessing
 import pathlib
+from create_vega import (
+    create_vega_dict,
+    create_scatterplot,
+    create_barchart,
+    create_matrix,
+)
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from distutils import file_util
@@ -51,6 +57,7 @@ from render_jpg import _calculate_total_tiles, composite_channel, render_color_t
 from render_png import colorize_integer, colorize_mask, render_tile, render_u32_tiles
 from storyexport import (
     create_story_base,
+    lookup_vis_data_type,
     deduplicate_data,
     get_current_dir,
     get_story_dir,
@@ -59,6 +66,7 @@ from storyexport import (
     label_to_dir,
     mask_label_from_index,
     mask_path_from_index,
+    copy_vega_csv,
 )
 
 if os.name == "nt":
@@ -129,7 +137,8 @@ def copy_vis_csv_files(waypoint_data, json_path):
     for in_path, out_path in vis_path_dict_out.items():
         if pathlib.Path(in_path).suffix in [".csv"]:
             try:
-                file_util.copy_file(in_path, out_path)
+                # Modify matrix CSV files if needed
+                copy_vega_csv(waypoint_data, in_path, out_path)
             except DistutilsFileError as e:
                 print(f"Cannot copy {in_path}")
                 print(e)
@@ -146,9 +155,7 @@ class ZarrWrapper:
     def __init__(self, group, dimensions):
 
         self.group = group
-        dim_alias = {
-            'I': 'C'
-        }
+        dim_alias = {"I": "C"}
         self.dim_list = [dim_alias.get(d, d) for d in dimensions]
 
     def __getitem__(self, full_idx_list):
@@ -540,7 +547,7 @@ def reset_globals():
 
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """Get absolute path to resource, works for dev and for PyInstaller"""
     try:
         # PyInstaller creates a temp folder at _MEIPASS
         base_path = sys._MEIPASS
@@ -1097,13 +1104,28 @@ def make_waypoints(d, mask_data, vis_path_dict={}):
             "Zoom": waypoint["zoom"],
             "Pan": waypoint["pan"],
         }
-        for vis in ["VisScatterplot", "VisCanvasScatterplot", "VisMatrix"]:
+        vis_fn_dict = {
+            "VisScatterplot": create_scatterplot,
+            "VisBarChart": create_barchart,
+            "VisMatrix": create_matrix,
+        }
+        for vis in ["VisScatterplot", "VisBarChart", "VisMatrix"]:
             if vis in waypoint:
-                wp[vis] = waypoint[vis]
-                wp[vis]["data"] = vis_path_dict[wp[vis]["data"]]
+                params = {}
+                if vis == "VisScatterplot":
+                    params = {
+                        "clusters": waypoint[vis]["clusters"]["labels"].split(","),
+                        "colors": waypoint[vis]["clusters"]["colors"].split(","),
+                        "xLabel": waypoint[vis]["axes"]["x"],
+                        "yLabel": waypoint[vis]["axes"]["y"],
+                    }
+                in_path = waypoint[vis]
+                if vis != "VisBarChart":
+                    in_path = waypoint[vis]["data"]
 
-        if "VisBarChart" in waypoint:
-            wp["VisBarChart"] = vis_path_dict[waypoint["VisBarChart"]]
+                wp[vis] = create_vega_dict(
+                    in_path, vis_path_dict[in_path], vis_fn_dict[vis], params
+                )
 
         yield wp
 
@@ -1376,10 +1398,17 @@ def api_preview(session):
         }
         index_filename = os.path.join(get_story_dir(), "index.html")
         cache_dict["index.html"] = {"function": lambda: index_filename}
+        # TODO, development bundle
+        bundle_filename = os.path.join(get_story_dir(), "bundle.js")
+        cache_dict["bundle.js"] = {"function": lambda: bundle_filename}
 
         vis_path_dict = deduplicate_data(request.json["waypoints"], "data")
         for in_path, out_path in vis_path_dict.items():
-            cache_dict[out_path] = {"function": lambda: in_path}
+            cache_dict[out_path] = {
+                "function": copy_vega_csv,
+                "args": [request.json["waypoints"], in_path, None],
+                "mimetype": "text/csv",
+            }
 
         cache_dict = add_mask_tiles_to_dict(cache_dict, mask_config_rows)
         cache_dict = add_image_tiles_to_dict(

@@ -10,8 +10,8 @@ from json.decoder import JSONDecodeError
 from tifffile.tifffile import TiffFileError
 
 from app import Opener, extract_story_json_stem, make_groups, make_rows, make_stories
+from storyexport import deduplicate_data, copy_vega_csv
 from render_jpg import render_color_tiles
-from storyexport import deduplicate_data
 
 
 def render(opener, saved, output_dir, logger):
@@ -35,7 +35,8 @@ def copy_vis_csv_files(waypoint_data, json_path, output_dir, vis_dir):
         if pathlib.Path(in_path).suffix in [".csv"]:
             try:
                 out_path = vis_path_dict_out[key_path]
-                file_util.copy_file(in_path, out_path)
+                # Modify matrix CSV files if needed
+                copy_vega_csv(waypoint_data, in_path, out_path)
             except DistutilsFileError as e:
                 print(f"Cannot copy {in_path}")
                 print(e)

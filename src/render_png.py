@@ -63,7 +63,7 @@ def colorize_integer(integer):
 
 
 def colorize_mask(target, image):
-    """ Render _image_ in pseudocolor into _target_
+    """Render _image_ in pseudocolor into _target_
     Args:
         target: Numpy uint8 array containing RGBA composition target
         image: Numpy integer array of image to render and composite

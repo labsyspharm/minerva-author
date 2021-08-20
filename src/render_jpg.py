@@ -12,7 +12,7 @@ import os
 
 
 def composite_channel(target, image, color, range_min, range_max):
-    """ Render _image_ in pseudocolor and composite into _target_
+    """Render _image_ in pseudocolor and composite into _target_
     Args:
         target: Numpy float32 array containing composition target image
         image: Numpy uint16 array of image to render and composite
