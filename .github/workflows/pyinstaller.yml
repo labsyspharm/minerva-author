@@ -56,6 +56,11 @@ jobs:
           mv dist minerva_author
           mv minerva_author/app minerva_author/minerva_author
           zip minerva_author_macos.zip minerva_author
+      - name: Get release
+        id: get_release
+        uses: agners/get-draft-release@v0.1.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Release Windows
         if: startsWith(matrix.os,'windows')
         run: |
@@ -63,7 +68,7 @@ jobs:
         env:
           FILES: minerva_author_windows.zip
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.draft_release.outputs.tag_name }}
+          VERSION: ${{ steps.get_release.outputs.tag_name }}
       - name: Release Mac
         if: startsWith(matrix.os,'mac')
         run: |
@@ -71,4 +76,4 @@ jobs:
         env:
           FILES: minerva_author_macos.zip
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ needs.draft_release.outputs.tag_name }}
+          VERSION: ${{ steps.get_release.outputs.tag_name }}
