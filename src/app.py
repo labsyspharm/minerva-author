@@ -1399,8 +1399,8 @@ def api_preview(session):
         index_filename = os.path.join(get_story_dir(), "index.html")
         cache_dict["index.html"] = {"function": lambda: index_filename}
         # TODO, development bundle
-        bundle_filename = os.path.join(get_story_dir(), "bundle.js")
-        cache_dict["bundle.js"] = {"function": lambda: bundle_filename}
+        # bundle_filename = os.path.join(get_story_dir(), "bundle.js")
+        # cache_dict["bundle.js"] = {"function": lambda: bundle_filename}
 
         vis_path_dict = deduplicate_data(request.json["waypoints"], "data")
         for in_path, out_path in vis_path_dict.items():
