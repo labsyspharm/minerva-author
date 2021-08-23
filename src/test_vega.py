@@ -21,6 +21,7 @@ def test_create_vega_scatterplot():
         create_scatterplot,
         {
             "clusters": ["Tumor", "Other", "Immune", "Stromal"],
+            "colors": ["FFFFFF", 'FF0000', '00FF00', '0000FF'],
             "xLabel": "KERATIN",
             "yLabel": "CD45",
         },
