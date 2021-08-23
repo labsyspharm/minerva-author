@@ -47,11 +47,7 @@ pytest
 
 ### Automated Releases
 
-If a new change is pushed with a tagname, Github Actions workflow will generate a new release.
-```
-git tag -a vX.Y.Z -m "Version X.Y.Z"
-git push origin vX.Y.Z
-```
+All pushes to master will update the current draft relase.
 
 ### Packaging
 
