@@ -47,7 +47,7 @@ jobs:
         run: |
           package_win.bat
           move dist minerva_author
-          7z a minerva_author.zip minerva_author
+          7z a minerva_author_windows.zip minerva_author
       - name: Package Mac
         if: startsWith(matrix.os,'mac')
         shell: bash -l {0}
@@ -55,12 +55,16 @@ jobs:
           bash package_mac.sh
           mv dist minerva_author
           mv minerva_author/app minerva_author/minerva_author
-          zip minerva_author.zip minerva_author
-      - name: Release
-        uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
-            minerva_author.zip
+          zip minerva_author_macos.zip minerva_author
+      - name: Release Windows
+        if: startsWith(matrix.os,'windows')
         env:
+          FILES: minerva_author_windows.zip
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.draft_release.outputs.tag_name }}
+      - name: Release Mac
+        if: startsWith(matrix.os,'mac')
+        env:
+          FILES: minerva_author_macos.zip
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.draft_release.outputs.tag_name }}
