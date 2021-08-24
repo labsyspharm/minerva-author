@@ -29,6 +29,8 @@ jobs:
           unzip openslide.zip
           dir
           move openslide-win64-20171122\bin\* src\
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: OpenSlide MacOS
         if: startsWith(matrix.os,'mac')
         shell: bash -l {0}
@@ -36,6 +38,8 @@ jobs:
           gh release list -L 1
           gh release list -L 1 | sed -n "s/.*Draft.*\(v.*\)[[:space:]].*/\1/p"
           brew install openslide
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Update the Minerva Story submodule
         run: |
           git submodule update --init --recursive
