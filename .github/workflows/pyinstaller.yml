@@ -69,12 +69,12 @@ jobs:
         env:
           FILES: minerva_author_windows.zip
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.get_release.outputs.tag_name }}
       - name: Release Mac
         if: startsWith(matrix.os,'mac')
         run: |
+          VERSION=$(gh release list -L 1 | sed -n "s/.*Draft.*\(v.*\)[[:space:]].*/\1/p")
+          VERSION=v1.9.0
           gh release upload --clobber ${{ env.VERSION }} ${{ env.FILES }}
         env:
           FILES: minerva_author_macos.zip
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.get_release.outputs.tag_name }}
