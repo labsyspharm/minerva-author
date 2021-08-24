@@ -23,6 +23,7 @@ jobs:
         if: startsWith(matrix.os,'windows')
         shell: cmd /C CALL {0}
         run: |
+          gh --version
           gh release list -L 1
           gh release list -L 1 | sed -n "s/.*Draft.*\(v.*\)[[:space:]].*/\1/p"
           curl https://github.com/openslide/openslide-winbuild/releases/download/v20171122/openslide-win64-20171122.zip -L -o openslide.zip
@@ -35,6 +36,7 @@ jobs:
         if: startsWith(matrix.os,'mac')
         shell: bash -l {0}
         run: |
+          gh --version
           gh release list -L 1
           gh release list -L 1 | sed -n "s/.*Draft.*\(v.*\)[[:space:]].*/\1/p"
           brew install openslide
