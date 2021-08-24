@@ -63,7 +63,7 @@ jobs:
       - name: Release Windows
         if: startsWith(matrix.os,'windows')
         run: |
-          gh release upload --clobber ${{ VERSION }} ${{ env.FILES }}
+          gh release upload --clobber ${{ env.VERSION }} ${{ env.FILES }}
         env:
           FILES: minerva_author_windows.zip
           VERSION: ${{ secrets.VERSION }}
@@ -71,7 +71,7 @@ jobs:
       - name: Release Mac
         if: startsWith(matrix.os,'mac')
         run: |
-          gh release upload --clobber ${{ VERSION }} ${{ env.FILES }}
+          gh release upload --clobber ${{ env.VERSION }} ${{ env.FILES }}
         env:
           FILES: minerva_author_macos.zip
           VERSION: ${{ secrets.VERSION }}
