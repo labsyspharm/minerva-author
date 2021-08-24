@@ -74,7 +74,7 @@ jobs:
         run: |
           VERSION=$(gh release list -L 1 | sed -n "s/.*Draft.*\(v.*\)[[:space:]].*/\1/p")
           VERSION=v1.9.0
-          gh release upload --clobber ${{ env.VERSION }} ${{ env.FILES }}
+          gh release upload --clobber $VERSION ${{ env.FILES }}
         env:
           FILES: minerva_author_macos.zip
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
