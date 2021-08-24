@@ -84,7 +84,3 @@ jobs:
           VERSION: v1.9.0
           FILES: minerva_author_macos.zip
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/upload-artifact@v2
-        with:
-          name: my-artifact
-          path: *.zip
