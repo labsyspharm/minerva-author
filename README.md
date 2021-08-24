@@ -48,10 +48,6 @@ pytest
 ### Automated Releases
 
 All pushes to master will update the current draft relase.
-Update the draft release version manually with:
-```
-echo "vX.Y.Z" | gh secret set VERSION
-```
 
 ### Packaging
 
