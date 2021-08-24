@@ -50,16 +50,12 @@ jobs:
         shell: cmd /C CALL {0}
         run: |
           package_win.bat
-          move dist minerva_author_windows
-          7z a minerva_author_windows.zip minerva_author_windows
-      - name: Package Mac
-        if: startsWith(matrix.os,'mac')
-        shell: bash -l {0}
+      - name: Zip Windows
+        if: startsWith(matrix.os,'windows')
+        shell: cmd /C CALL {0}
         run: |
-          bash package_mac.sh
-          mv dist minerva_author_macos
-          mv minerva_author_macos/app minerva_author_macos/minerva_author
-          zip minerva_author_macos.zip minerva_author_macos
+          move "dist" "minerva_author_windows"
+          7z a minerva_author_windows.zip minerva_author_windows
       - name: Release Windows
         if: startsWith(matrix.os,'windows')
         run: |
@@ -68,6 +64,18 @@ jobs:
           VERSION: v1.9.0
           FILES: minerva_author_windows.zip
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Package Mac
+        if: startsWith(matrix.os,'mac')
+        shell: bash -l {0}
+        run: |
+          bash package_mac.sh
+      - name: Zip Mac
+        if: startsWith(matrix.os,'mac')
+        shell: bash -l {0}
+        run: |
+          mv dist minerva_author_macos
+          mv minerva_author_macos/app minerva_author_macos/minerva_author
+          zip minerva_author_macos.zip minerva_author_macos
       - name: Release Mac
         if: startsWith(matrix.os,'mac')
         run: |
