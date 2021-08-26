@@ -205,7 +205,19 @@ class Opener:
                 self.group = root
             print("OME ", self.ome_version)
             num_channels = self.get_shape()[0]
-            dimensions = self.io.series[0].get_axes()
+
+            # Backup approach to dimension order
+            metadata = self.read_metadata()
+            ome_dim_order = metadata.images[0].pixels.dimension_order.value
+            ome_dimensions = ome_dim_order[0:len(self.group[0].shape)][::-1]
+            dimensions = 'IYX' if self.ome_version == 5 else ome_dimensions
+            # Direct approach to dimension order
+            try:
+                print(dimensions)
+                dimensions = self.io.series[0].get_axes()
+                print(dimensions)
+            except AttributeError:
+                print('Unable to detect dimension order from TIFF series.')
             self.wrapper = ZarrWrapper(self.group, dimensions)
 
             tile_0 = self.get_tifffile_tile(num_channels, 0, 0, 0, 0, 1024)
