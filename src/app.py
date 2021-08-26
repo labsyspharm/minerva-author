@@ -213,9 +213,7 @@ class Opener:
             dimensions = 'IYX' if self.ome_version == 5 else ome_dimensions
             # Direct approach to dimension order
             try:
-                print(dimensions)
                 dimensions = self.io.series[0].get_axes()
-                print(dimensions)
             except AttributeError:
                 print('Unable to detect dimension order from TIFF series.')
             self.wrapper = ZarrWrapper(self.group, dimensions)
