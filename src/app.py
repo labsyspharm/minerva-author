@@ -323,6 +323,7 @@ class Opener:
             (num_channels, shape_x, shape_y) = parse_shape(self.group[0].shape)
             all_levels = [parse_shape(v.shape) for v in self.group.values()]
             num_levels = len([shape for shape in all_levels if max(shape[1:]) > 512])
+            num_levels = max(num_levels, 1)
             return (num_channels, num_levels, shape_x, shape_y)
 
         elif self.reader == "openslide":
