@@ -507,11 +507,10 @@ class Opener:
                     num_channels, level, tx, ty, int(marker), tile_size
                 )
 
-                if tile.dtype != np.uint16:
-                    if tile.dtype == np.uint8:
-                        tile = 255 * tile.astype(np.uint16)
-                    else:
-                        tile = tile.astype(np.uint16)
+                if np.issubdtype(tile.dtype, np.unsignedinteger):
+                    iinfo = np.iinfo(tile.dtype)
+                    start *= iinfo.min
+                    end *= iinfo.max
 
                 if i == 0 or target is None:
                     target = np.zeros(tile.shape + (3,), np.float32)
@@ -522,7 +521,7 @@ class Opener:
 
             if target is not None:
                 np.clip(target, 0, 1, out=target)
-                target_u8 = (target * 255).astype(np.uint8)
+                target_u8 = np.rint(target * 255).astype(np.uint8)
                 return Image.frombytes("RGB", target.T.shape[1:], target_u8.tobytes())
 
         elif self.reader == "openslide":
@@ -1184,8 +1183,8 @@ def make_rows(d):
         yield {
             "Group Path": make_group_path(d, group),
             "Channel Number": [str(c["id"]) for c in channels],
-            "Low": [int(65535 * c["min"]) for c in channels],
-            "High": [int(65535 * c["max"]) for c in channels],
+            "Low": [c["min"] for c in channels],
+            "High": [c["max"] for c in channels],
             "Color": ["#" + c["color"] for c in channels],
         }
 
