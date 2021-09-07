@@ -15,10 +15,10 @@ def composite_channel(target, image, color, range_min, range_max):
     """Render _image_ in pseudocolor and composite into _target_
     Args:
         target: Numpy float32 array containing composition target image
-        image: Numpy uint16 array of image to render and composite
+        image: Numpy array of image to render and composite
         color: Color as r, g, b float array, 0-1
-        range_min: Threshhold range minimum, 0-65535
-        range_max: Threshhold range maximum, 0-65535
+        range_min: Threshold range minimum (in terms of image pixel values)
+        range_max: Threshold range maximum (in terms of image pixel values)
     """
     f_image = (image.astype("float32") - range_min) / (range_max - range_min)
     f_image = f_image.clip(0, 1, out=f_image)
