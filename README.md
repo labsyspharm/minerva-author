@@ -19,7 +19,7 @@ conda config --add channels conda-forge
 conda create --name author python=3.7 nomkl
 conda activate author
 pip install numpy
-conda env create -f environment.yml
+conda env update -f requirements.yml
 conda install scikit-image
 conda install zarr
 ```

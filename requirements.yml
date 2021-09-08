@@ -1,4 +1,4 @@
-name: build-environment 
+name: author
 channels:
   - conda-forge
 dependencies:
