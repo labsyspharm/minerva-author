@@ -46,16 +46,6 @@ jobs:
         run: |
           copy "%CONDA_PREFIX%\Library\bin\libcrypto-1_1-x64.dll" "%CONDA_PREFIX%\DLLs\libcrypto-1_1-x64.dll"
           copy "%CONDA_PREFIX%\Library\bin\libssl-1_1-x64.dll" "%CONDA_PREFIX%\DLLs\libssl-1_1-x64.dll"
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: ${{ env.tag }}
-          draft: false
-          prerelease: ${{ contains(github.ref, 'rc') }}
       - name: Package Windows
         if: startsWith(matrix.os,'windows')
         shell: cmd /C CALL {0}
@@ -67,16 +57,6 @@ jobs:
         run: |
           move "dist" "minerva_author_windows"
           7z a minerva_author_windows.zip minerva_author_windows
-      - name: Release Windows
-        if: startsWith(matrix.os,'windows')
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./minerva_author_windows.zip
-          asset_name: minerva_author_windows.zip
-          asset_content_type: application/zip
       - name: Package Mac
         if: startsWith(matrix.os,'mac')
         shell: bash -l {0}
@@ -89,13 +69,17 @@ jobs:
           mv dist minerva_author_macos
           mv minerva_author_macos/app minerva_author_macos/minerva_author
           zip -vr minerva_author_macos.zip minerva_author_macos/ -x "*.DS_Store"
-      - name: Release Mac
-        if: startsWith(matrix.os,'mac')
-        uses: actions/upload-release-asset@v1
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./minerva_author_macos.zip
-          asset_name: minerva_author_macos.zip
-          asset_content_type: application/zip
+          tag_name: ${{ github.ref }}
+          name: ${{ env.tag }}
+          draft: false
+          prerelease: ${{ contains(github.ref, 'rc') }}
+          fail_on_unmatched_files: false
+          files: |
+            minerva_author_windows.zip
+            minerva_author_macos.zip
+
