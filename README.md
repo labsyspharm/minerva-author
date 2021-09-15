@@ -16,7 +16,7 @@ git clone git@github.com:labsyspharm/minerva-author.git
 cd minerva-author
 git submodule update --init --recursive
 conda config --add channels conda-forge
-conda create --name author python=3.7 nomkl
+conda create --name author python=3.8 nomkl
 conda activate author
 pip install numpy
 conda env update -f requirements.yml
