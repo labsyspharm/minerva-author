@@ -75,7 +75,7 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./minerva_author_windows.zip
-          asset_name: minerva_author_windows_${{ env.tag }}.zip
+          asset_name: minerva_author_windows.zip
           asset_content_type: application/zip
       - name: Package Mac
         if: startsWith(matrix.os,'mac')
@@ -97,5 +97,5 @@ jobs:
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./minerva_author_macos.zip
-          asset_name: minerva_author_macos_${{ env.tag }}.zip
+          asset_name: minerva_author_macos.zip
           asset_content_type: application/zip
