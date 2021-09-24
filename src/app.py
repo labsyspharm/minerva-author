@@ -210,7 +210,8 @@ class Opener:
             metadata = self.read_metadata()
             ome_dim_order = metadata.images[0].pixels.dimension_order.value
             ome_dimensions = ome_dim_order[0:len(self.group[0].shape)][::-1]
-            dimensions = 'IYX' if self.ome_version == 5 else ome_dimensions
+            default_dimensions = 'YX' if len(self.group[0].shape) < 3 else 'IYX'
+            dimensions = default_dimensions if self.ome_version == 5 else ome_dimensions
             # Direct approach to dimension order
             try:
                 dimensions = self.io.series[0].get_axes()
