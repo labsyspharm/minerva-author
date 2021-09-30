@@ -35,6 +35,7 @@ jobs:
         shell: bash -l {0}
         run: |
           brew install openslide
+          conda install openslide
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Update the Minerva Story submodule
