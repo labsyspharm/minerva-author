@@ -25,7 +25,6 @@ from distutils import file_util
 from distutils.errors import DistutilsFileError
 from functools import update_wrapper, wraps
 from pathlib import Path
-from threading import Timer
 
 # Needed for pyinstaller
 from imagecodecs import _imcd, _jpeg2k, _jpeg8, _zlib  # noqa
@@ -568,9 +567,6 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-G = reset_globals()
-tiff_lock = multiprocessing.Lock()
-mask_lock = multiprocessing.Lock()
 app = Flask(__name__, static_folder=resource_path("static"), static_url_path="")
 
 cors = CORS(app)
@@ -1811,7 +1807,11 @@ def open_browser():
 
 
 if __name__ == "__main__":
-    Timer(1, open_browser).start()
+
+    G = reset_globals()
+    tiff_lock = multiprocessing.Lock()
+    mask_lock = multiprocessing.Lock()
+    multiprocessing.freeze_support()
 
     atexit.register(close_tiff)
     atexit.register(close_masks)
@@ -1820,6 +1820,8 @@ if __name__ == "__main__":
     sys.stdout.reconfigure(line_buffering=True)
 
     if "--dev" in sys.argv:
+        open_browser()
         app.run(debug=False, port=PORT)
     else:
+        open_browser()
         serve(app, listen="127.0.0.1:" + str(PORT), threads=10)
