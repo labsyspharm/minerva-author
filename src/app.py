@@ -207,10 +207,11 @@ class Opener:
 
             # Backup approach to dimension order
             metadata = self.read_metadata()
-            ome_dim_order = metadata.images[0].pixels.dimension_order.value
-            ome_dimensions = ome_dim_order[0:len(self.group[0].shape)][::-1]
-            default_dimensions = 'YX' if len(self.group[0].shape) < 3 else 'IYX'
-            dimensions = default_dimensions if self.ome_version == 5 else ome_dimensions
+            dimensions = 'YX' if len(self.group[0].shape) < 3 else 'IYX'
+            if self.ome_version == 6 and metadata:
+                ome_dim_order = metadata.images[0].pixels.dimension_order.value
+                dimensions = ome_dim_order[0:len(self.group[0].shape)][::-1]
+
             # Direct approach to dimension order
             try:
                 dimensions = self.io.series[0].get_axes()
@@ -267,7 +268,8 @@ class Opener:
         if self.ext == ".ome.tif" or self.ext == ".ome.tiff":
             try:
                 metadata = ome_types.from_tiff(self.path)
-            except Exception:
+            except Exception as e:
+                G["logger"].error(e)
                 return None
 
             if not metadata or not metadata.images or not metadata.images[0]:
