@@ -102,6 +102,13 @@ def create_vega_dict(in_path, out_path, create_fn, params={}):
     vega_dict["data"] = {"url": str(out_path)}
     if "config" not in vega_dict:
         vega_dict["config"] = {}
+    # Style the output chart
+    vega_dict["encoding"]["color"]["legend"] = {
+        "direction": "horizontal",
+        "orient": "bottom"
+    }
+    vega_dict["encoding"]["x"]["grid"] = False
+    vega_dict["encoding"]["y"]["grid"] = False
     vega_dict["config"]["background"] = None
     vega_dict["width"] = "container"
     return vega_dict
