@@ -1808,9 +1808,10 @@ def open_browser():
     webbrowser.open_new("http://127.0.0.1:" + str(PORT) + "/")
 
 
+G = reset_globals()
+
 if __name__ == "__main__":
 
-    G = reset_globals()
     tiff_lock = multiprocessing.Lock()
     mask_lock = multiprocessing.Lock()
     multiprocessing.freeze_support()
