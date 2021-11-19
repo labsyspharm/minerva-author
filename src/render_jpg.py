@@ -7,6 +7,7 @@ try:
 except ImportError:
     import pathlib2 as pathlib
 
+import math
 import json
 import os
 
@@ -78,7 +79,10 @@ def render_color_tiles(
         with open(config_path, "w") as f:
             json.dump(config_rows, f)
 
-    num_levels = opener.get_shape()[1]
+    # compute number of levels for tile size
+    input_shape = opener.get_shape()
+    max_input_size = max(input_shape[2], input_shape[3])
+    num_levels = math.ceil(math.log2(max_input_size/tile_size))
 
     total_tiles = _calculate_total_tiles(opener, tile_size, num_levels)
     progress = 0

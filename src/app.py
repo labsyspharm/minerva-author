@@ -341,12 +341,18 @@ class Opener:
             return (3, level_count, width, height)
 
     def read_tiles(self, level, channel_number, tx, ty, tilesize):
+
+        max_level =  self.get_shape()[1] - 1
+        sample = max(2 ** (level - max_level), 1)
+        level = min(max_level, level)
+        tilesize = sample * tilesize
+
         ix = tx * tilesize
         iy = ty * tilesize
 
         try:
             tile = self.wrapper[
-                level, ix : ix + tilesize, iy : iy + tilesize, 0, channel_number, 0
+                level, ix : ix + tilesize : sample, iy : iy + tilesize : sample, 0, channel_number, 0
             ]
             return tile
         except Exception as e:
