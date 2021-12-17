@@ -11,8 +11,16 @@ The Python Flask server along with automated testing is stored at [minerva-autho
 ## Using Minerva Author
 
 ### Installing
+#### Prerequisites
+ * [Python](https://www.python.org/) 3.8
+ * [conda](https://conda.io)
+ * Windows only:
+   * [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+   * [openslide Windows binaries](https://openslide.org/download/#windows-binaries) -- see note below
+
+#### Development environment setup
 ```
-git clone git@github.com:labsyspharm/minerva-author.git
+git clone https://github.com/labsyspharm/minerva-author.git
 cd minerva-author
 git submodule update --init --recursive
 conda config --add channels conda-forge
