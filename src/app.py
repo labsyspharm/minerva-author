@@ -512,7 +512,7 @@ class Opener:
 
                 if np.issubdtype(tile.dtype, np.unsignedinteger):
                     iinfo = np.iinfo(tile.dtype)
-                    start *= iinfo.min
+                    start *= iinfo.max
                     end *= iinfo.max
 
                 if i == 0 or target is None:

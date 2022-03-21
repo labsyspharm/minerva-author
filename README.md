@@ -11,14 +11,23 @@ The Python Flask server along with automated testing is stored at [minerva-autho
 ## Using Minerva Author
 
 ### Installing
+
 #### Prerequisites
  * [Python](https://www.python.org/) 3.8
  * [conda](https://conda.io)
- * Windows only:
-   * [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
-   * [openslide Windows binaries](https://openslide.org/download/#windows-binaries) -- see note below
+
+**Windows**
+
+ * [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+ * [openslide Windows binaries](https://openslide.org/download/#windows-binaries)
+
+**MacOS**
+
+ * install [homebrew](https://brew.sh/) and run `brew install openslide`.
+ * Install [Anaconda](https://docs.anaconda.com/anaconda/install/mac-os/)
 
 #### Development environment setup
+
 ```
 git clone https://github.com/labsyspharm/minerva-author.git
 cd minerva-author
@@ -28,6 +37,7 @@ conda create --name author python=3.8 nomkl
 conda activate author
 pip install numpy
 conda env update -f requirements.yml
+const install openslide
 conda install scikit-image
 conda install zarr
 ```
