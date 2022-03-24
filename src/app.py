@@ -1296,7 +1296,7 @@ def add_image_tiles_to_dict(cache_dict, config_rows, opener, out_dir_rel):
             (nx, ny) = opener.get_level_tiles(level, 1024)
             for ty, tx in itertools.product(range(0, ny), range(0, nx)):
                 filename = "{}_{}_{}.{}".format(level, tx, ty, ext)
-                output_file = str(output_path / group_dir / filename)
+                output_file = str((output_path / group_dir / filename).as_posix())
                 cache_dict[output_file] = {
                     "function": render_image_tile,
                     "mimetype": f"image/{ext}",
@@ -1357,7 +1357,7 @@ def add_mask_tiles_to_dict(cache_dict, mask_config_rows):
             (nx, ny) = opener.get_level_tiles(level, 1024)
             for ty, tx in itertools.product(range(0, ny), range(0, nx)):
                 filename = "{}_{}_{}.{}".format(level, tx, ty, ext)
-                output_file = str(output_path / filename)
+                output_file = str((output_path / filename).as_posix())
                 cache_dict[output_file] = {
                     "function": render_mask_tile,
                     "mimetype": f"image/{ext}",
@@ -1510,7 +1510,7 @@ def load_saved_file(input_file):
     if input_path.suffix == ".dat":
         saved = pickle.load(open(input_path, "rb"))
     else:
-        with open(input_path) as json_file:
+        with open(input_path, encoding="utf-8") as json_file:
             saved = json.load(json_file)
             autosaved = saved.get("autosave")
 

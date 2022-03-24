@@ -14,11 +14,17 @@ The Python Flask server along with automated testing is stored at [minerva-autho
 
 All commands should be run in "Terminal" on MacOS and "Anaconda Prompt" on Windows.
 
+First, download this repository through the git command line:
+
+```
+git clone https://github.com/labsyspharm/minerva-author.git
+```
+
 **Windows**
 
  * [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
  * Install [Anaconda](https://docs.anaconda.com/anaconda/install/windows/)
- * Install [openslide](https://neeraj-kumar-vaid.medium.com/installing-openslide-on-a-windows-10-computer-with-python-3-7-8c57b5cc3e40) Windows [binaries](https://openslide.org/download/#windows-binaries)
+ * Move [openslide](https://openslide.org/download/#windows-binaries) "bin" directory to "minerva-author/src"
  * Run `conda install -c anaconda git`
 
 **MacOS**
@@ -29,7 +35,6 @@ All commands should be run in "Terminal" on MacOS and "Anaconda Prompt" on Windo
 Then run the following commands to set up the development environment:
 
 ```
-git clone https://github.com/labsyspharm/minerva-author.git
 cd minerva-author
 git submodule update --init --recursive
 conda config --add channels conda-forge
