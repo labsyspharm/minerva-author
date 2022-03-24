@@ -17,7 +17,7 @@ All commands should be run in "Terminal" on MacOS and "Anaconda Prompt" on Windo
 **Windows**
 
  * [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
- * [openslide Windows binaries](https://openslide.org/download/#windows-binaries)
+ * Install [openslide](https://neeraj-kumar-vaid.medium.com/installing-openslide-on-a-windows-10-computer-with-python-3-7-8c57b5cc3e40) Windows [binaries](https://openslide.org/download/#windows-binaries)
  * Install [Anaconda](https://docs.anaconda.com/anaconda/install/windows/)
  * Run `conda install -c anaconda git`
 
