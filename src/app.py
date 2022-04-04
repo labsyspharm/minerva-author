@@ -378,7 +378,7 @@ class Opener:
                 tile[:, :, 0] = tile_0
                 tile[:, :, 1] = tile_1
                 tile[:, :, 2] = tile_2
-                _format = "I;8"
+                _format = "RGB"
             else:
                 tile = self.get_tifffile_tile(
                     num_channels, level, tx, ty, channel_number, 1024
