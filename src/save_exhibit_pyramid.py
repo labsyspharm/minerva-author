@@ -14,6 +14,34 @@ from storyexport import deduplicate_data, copy_vega_csv
 from render_jpg import render_color_tiles
 
 
+def json_to_html(exhibit):
+    return (
+        '<!DOCTYPE html>\n'
+        '<html lang="en-US">\n'
+        '\n'
+        '    <head>\n'
+        '        <meta charset="utf-8">\n'
+        '        <meta http-equiv="X-UA-Compatible" content="IE=edge">\n'
+        '        <meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        '    </head>\n'
+        '\n'
+        '    <body>\n'
+        '        <div id="minerva-browser" style="position: absolute; top: 0; left: 0; height: 100%; width: 100%;"></div>\n'
+        '        <script defer src="https://use.fontawesome.com/releases/v5.2.0/js/all.js" integrity="sha384-4oV5EgaV02iISL2ban6c/RmotsABqE4yZxZLcYMAdG7FAPsyHYAPpywE9PJo+Khy" crossorigin="anonymous"></script>\n'
+        '        <script src="https://cdn.jsdelivr.net/npm/minerva-browser@3.2.3/build/bundle.js"></script>\n'
+        '        <script>\n'
+        '         window.viewer = MinervaStory.default.build_page({\n'
+                     f'exhibit: {exhibit},\n'
+        '             id: "minerva-browser",\n'
+        '             embedded: true\n'
+        '         });\n'
+        '        </script>\n'
+        '    </body>\n'
+        '\n'
+        '</html>'
+    )
+
+
 def render(opener, saved, output_dir, logger):
     config_rows = list(make_rows(saved["groups"]))
     render_color_tiles(opener, output_dir, 1024, config_rows, logger, None, False)
@@ -126,6 +154,10 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
 
     with open(output_dir / "exhibit.json", "w") as wf:
         json.dump(exhibit_config, wf)
+
+    with open(output_dir / "index.html", "w") as wf:
+        exhibit_string = json.dumps(exhibit_config)
+        wf.write(json_to_html(exhibit_string))
 
     render(opener, saved, output_dir, logger)
 
