@@ -2,13 +2,14 @@ name: PyInstaller
 
 on:
   push:
-    branches: [ master ]
+    tags:
+      - 'v*'
 jobs:
   build:
     strategy:
       matrix:
-        os: [macos-latest, windows-latest]
-        python-version: [3.7]
+        os: [macos-10.15, windows-2019]
+        python-version: [3.8]
     runs-on: ${{ matrix.os }}
     name: Pyinstaller for ${{ matrix.os }}
     steps:
@@ -17,7 +18,7 @@ jobs:
         with:
           auto-update-conda: true
           environment-file: requirements.yml
-          activate-environment: build-environment
+          activate-environment: author
           python-version: ${{ matrix.python-version }}
       - name: OpenSlide Windows
         if: startsWith(matrix.os,'windows')
@@ -27,11 +28,16 @@ jobs:
           unzip openslide.zip
           dir
           move openslide-win64-20171122\bin\* src\
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: OpenSlide MacOS
         if: startsWith(matrix.os,'mac')
         shell: bash -l {0}
         run: |
           brew install openslide
+          conda install openslide
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Update the Minerva Story submodule
         run: |
           git submodule update --init --recursive
@@ -46,21 +52,35 @@ jobs:
         shell: cmd /C CALL {0}
         run: |
           package_win.bat
-          move dist minerva_author
-          7z a minerva_author.zip minerva_author
+      - name: Zip Windows
+        if: startsWith(matrix.os,'windows')
+        shell: cmd /C CALL {0}
+        run: |
+          move "dist" "minerva_author_windows"
+          7z a minerva_author_windows.zip minerva_author_windows
       - name: Package Mac
         if: startsWith(matrix.os,'mac')
         shell: bash -l {0}
         run: |
           bash package_mac.sh
-          mv dist minerva_author
-          mv minerva_author/app minerva_author/minerva_author
-          zip minerva_author.zip minerva_author
-      - name: Release
+      - name: Zip Mac
+        if: startsWith(matrix.os,'mac')
+        shell: bash -l {0}
+        run: |
+          mv dist minerva_author_macos
+          mv minerva_author_macos/app minerva_author_macos/minerva_author
+          zip -vr minerva_author_macos.zip minerva_author_macos/ -x "*.DS_Store"
+      - name: Create Release
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: |
-            minerva_author.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.tag }}
+          name: ${{ env.tag }}
+          draft: false
+          prerelease: ${{ contains(github.ref, 'rc') }}
+          fail_on_unmatched_files: false
+          files: |
+            minerva_author_windows.zip
+            minerva_author_macos.zip
+

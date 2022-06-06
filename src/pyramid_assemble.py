@@ -1,19 +1,22 @@
-from __future__ import print_function, division
-import sys
-import os
-import re
-import io
+from __future__ import division, print_function
+
 import argparse
-import pathlib
-import struct
-import itertools
-import uuid
-import multiprocessing
 import concurrent.futures
+import io
+import itertools
+import multiprocessing
+import os
+import pathlib
+import re
+import struct
+import sys
+import uuid
+
 import numpy as np
+import skimage.transform
 import tifffile
 import zarr
-import skimage.transform
+
 # This API is apparently changing in skimage 1.0 but it's not clear to
 # me what the replacement will be, if any. We'll explicitly import
 # this so it will break loudly if someone tries this with skimage 1.0.
@@ -37,8 +40,13 @@ def preduce(coords, img_in, img_out, is_mask):
 
 def imsave(path, img, tile_size, **kwargs):
     tifffile.imwrite(
-        path, img, bigtiff=True, append=True, tile=(tile_size, tile_size),
-        metadata=None, **kwargs
+        path,
+        img,
+        bigtiff=True,
+        append=True,
+        tile=(tile_size, tile_size),
+        metadata=None,
+        **kwargs,
     )
 
 
@@ -50,78 +58,84 @@ def construct_xml(filename, shapes, num_channels, ome_dtype, pixel_size=1):
     img_uuid = uuid.uuid4().urn
     ifd = 0
     xml = io.StringIO()
-    xml.write(u'<?xml version="1.0" encoding="UTF-8"?>')
+    xml.write('<?xml version="1.0" encoding="UTF-8"?>')
     xml.write(
-        (u'<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06"'
-         ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
-         ' UUID="{uuid}"'
-         ' xsi:schemaLocation="http://www.openmicroscopy.org/Schemas/OME/2016-06'
-         ' http://www.openmicroscopy.org/Schemas/OME/2016-06/ome.xsd">')
-        .format(uuid=img_uuid)
+        (
+            '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06"'
+            ' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"'
+            ' UUID="{uuid}"'
+            ' xsi:schemaLocation="http://www.openmicroscopy.org/Schemas/OME/2016-06'
+            ' http://www.openmicroscopy.org/Schemas/OME/2016-06/ome.xsd">'
+        ).format(uuid=img_uuid)
     )
     for level, shape in enumerate(shapes):
         if level == 0:
             psize_xml = (
-                u'PhysicalSizeX="{0}" PhysicalSizeXUnit="\u00b5m"'
-                u' PhysicalSizeY="{0}" PhysicalSizeYUnit="\u00b5m"'
-                .format(pixel_size)
+                'PhysicalSizeX="{0}" PhysicalSizeXUnit="\u00b5m"'
+                ' PhysicalSizeY="{0}" PhysicalSizeYUnit="\u00b5m"'.format(pixel_size)
             )
         else:
-            psize_xml = u''
-        xml.write(u'<Image ID="Image:{}">'.format(level))
+            psize_xml = ""
+        xml.write('<Image ID="Image:{}">'.format(level))
         xml.write(
-            (u'<Pixels BigEndian="false" DimensionOrder="XYZCT"'
-             ' ID="Pixels:{level}" {psize_xml} SizeC="{num_channels}" SizeT="1"'
-             ' SizeX="{sizex}" SizeY="{sizey}" SizeZ="1" Type="{ome_dtype}">')
-            .format(
-                level=level, psize_xml=psize_xml, num_channels=num_channels,
-                sizex=shape[1], sizey=shape[0], ome_dtype=ome_dtype
+            (
+                '<Pixels BigEndian="false" DimensionOrder="XYZCT"'
+                ' ID="Pixels:{level}" {psize_xml} SizeC="{num_channels}" SizeT="1"'
+                ' SizeX="{sizex}" SizeY="{sizey}" SizeZ="1" Type="{ome_dtype}">'
+            ).format(
+                level=level,
+                psize_xml=psize_xml,
+                num_channels=num_channels,
+                sizex=shape[1],
+                sizey=shape[0],
+                ome_dtype=ome_dtype,
             )
         )
         for channel in range(num_channels):
             xml.write(
-                (u'<Channel ID="Channel:{level}:{channel}"'
-                 + (u' Name="Channel {channel}"' if level == 0 else u'')
-                 + u' SamplesPerPixel="1"><LightPath/></Channel>')
-                .format(level=level, channel=channel)
+                (
+                    '<Channel ID="Channel:{level}:{channel}"'
+                    + (' Name="Channel {channel}"' if level == 0 else "")
+                    + ' SamplesPerPixel="1"><LightPath/></Channel>'
+                ).format(level=level, channel=channel)
             )
         for channel in range(num_channels):
             xml.write(
-                (u'<TiffData FirstC="{channel}" FirstT="0" FirstZ="0"'
-                 ' IFD="{ifd}" PlaneCount="1">'
-                 '<UUID FileName="{filename}">{uuid}</UUID>'
-                 '</TiffData>')
-                .format(
-                    channel=channel, ifd=ifd, filename=filename, uuid=img_uuid
-                )
+                (
+                    '<TiffData FirstC="{channel}" FirstT="0" FirstZ="0"'
+                    ' IFD="{ifd}" PlaneCount="1">'
+                    '<UUID FileName="{filename}">{uuid}</UUID>'
+                    "</TiffData>"
+                ).format(channel=channel, ifd=ifd, filename=filename, uuid=img_uuid)
             )
             ifd += 1
         if level == 0:
             for channel in range(num_channels):
                 xml.write(
-                    u'<Plane TheC="{channel}" TheT="0" TheZ="0"/>'
-                    .format(channel=channel)
+                    '<Plane TheC="{channel}" TheT="0" TheZ="0"/>'.format(
+                        channel=channel
+                    )
                 )
-        xml.write(u'</Pixels>')
-        xml.write(u'</Image>')
-    xml.write(u'</OME>')
-    xml_bytes = xml.getvalue().encode('utf-8') + b'\x00'
+        xml.write("</Pixels>")
+        xml.write("</Image>")
+    xml.write("</OME>")
+    xml_bytes = xml.getvalue().encode("utf-8") + b"\x00"
     return xml_bytes
 
 
 def patch_ometiff_xml(path, xml_bytes):
-    with open(path, 'rb+') as f:
+    with open(path, "rb+") as f:
         f.seek(0, io.SEEK_END)
         xml_offset = f.tell()
         f.write(xml_bytes)
         f.seek(0)
         ifd_block = f.read(500)
-        match = re.search(b'!!xml!!\x00', ifd_block)
+        match = re.search(b"!!xml!!\x00", ifd_block)
         if match is None:
             raise RuntimeError("Did not find placeholder string in IFD")
         f.seek(match.start() - 8)
-        f.write(struct.pack('<Q', len(xml_bytes)))
-        f.write(struct.pack('<Q', xml_offset))
+        f.write(struct.pack("<Q", len(xml_bytes)))
+        f.write(struct.pack("<Q", xml_offset))
 
 
 def error(path, msg):
@@ -136,7 +150,7 @@ def main(in_paths, out_path, is_mask, pixel_size):
     if out_path.exists():
         error(out_path, "Output file already exists, aborting.")
 
-    if hasattr(os, 'sched_getaffinity'):
+    if hasattr(os, "sched_getaffinity"):
         num_workers = len(os.sched_getaffinity(0))
     else:
         num_workers = multiprocessing.cpu_count()
@@ -153,38 +167,35 @@ def main(in_paths, out_path, is_mask, pixel_size):
             if dtype == np.uint32:
                 if not is_mask:
                     error(
-                       path,
-                       "uint32 images are only supported in --mask mode."
-                       " Please contact the authors if you need support for"
-                       " intensity-based uint32 images."
+                        path,
+                        "uint32 images are only supported in --mask mode."
+                        " Please contact the authors if you need support for"
+                        " intensity-based uint32 images.",
                     )
-                ome_dtype = 'uint32'
+                ome_dtype = "uint32"
             elif dtype == np.uint16:
-                ome_dtype = 'uint16'
+                ome_dtype = "uint16"
             elif dtype == np.uint8:
-                ome_dtype = 'uint8'
+                ome_dtype = "uint8"
             else:
                 error(
                     path,
                     f"Can't handle dtype '{dtype}' yet, please contact the"
-                    f" authors."
+                    f" authors.",
                 )
-            kwargs = {
-                'description': '!!xml!!',
-                'software': 'Glencoe/Faas pyramid'
-            }
+            kwargs = {"description": "!!xml!!", "software": "Glencoe/Faas pyramid"}
         else:
             if img_in.shape != base_shape:
                 error(
                     path,
                     f"Expected shape {base_shape} to match first input image,"
-                    f" got {img_in.shape} instead."
+                    f" got {img_in.shape} instead.",
                 )
             if img_in.dtype != dtype:
                 error(
                     path,
                     f"Expected dtype '{dtype}' to match first input image,"
-                    f" got '{img_in.dtype}' instead."
+                    f" got '{img_in.dtype}' instead.",
                 )
             kwargs = {}
         imsave(out_path, img_in, tile_size, **kwargs)
@@ -194,7 +205,7 @@ def main(in_paths, out_path, is_mask, pixel_size):
     num_channels = len(in_paths)
     num_levels = np.ceil(np.log2(max(base_shape) / tile_size)) + 1
     factors = 2 ** np.arange(num_levels)
-    shapes = (np.ceil(np.array(base_shape) / factors[:,None])).astype(int)
+    shapes = (np.ceil(np.array(base_shape) / factors[:, None])).astype(int)
 
     print("Pyramid level sizes:")
     for i, shape in enumerate(shapes):
@@ -209,16 +220,20 @@ def main(in_paths, out_path, is_mask, pixel_size):
     shape_pairs = zip(shapes[:-1], shapes[1:])
     for level, (shape_in, shape_out) in enumerate(shape_pairs):
 
-        print("Resizing channels for level {} ({} -> {})".format(
-            level + 2, format_shape(shape_in), format_shape(shape_out)
-        ))
+        print(
+            "Resizing channels for level {} ({} -> {})".format(
+                level + 2, format_shape(shape_in), format_shape(shape_out)
+            )
+        )
 
         ty = np.array(range(0, shape_in[0], tile_size))
         tx = np.array(range(0, shape_in[1], tile_size))
-        coords = list(zip(
-            itertools.product(ty, tx),
-            itertools.product(ty + tile_size, tx + tile_size)
-        ))
+        coords = list(
+            zip(
+                itertools.product(ty, tx),
+                itertools.product(ty + tile_size, tx + tile_size),
+            )
+        )
         img_out = np.empty(shape_out, dtype)
 
         for c in range(num_channels):
@@ -226,11 +241,15 @@ def main(in_paths, out_path, is_mask, pixel_size):
             tiff = tifffile.TiffFile(out_path)
             page = level * num_channels + c
             img_in = zarr.open(tiff.aszarr(key=page), mode="r")
-            for i, _ in enumerate(executor.map(
-                preduce, coords,
-                itertools.repeat(img_in), itertools.repeat(img_out),
-                itertools.repeat(is_mask)
-            )):
+            for i, _ in enumerate(
+                executor.map(
+                    preduce,
+                    coords,
+                    itertools.repeat(img_in),
+                    itertools.repeat(img_out),
+                    itertools.repeat(is_mask),
+                )
+            ):
                 percent = int((i + 1) / len(coords) * 100)
                 if i % 20 == 0 or percent == 100:
                     print(f"\r    {c+1}: {percent}%", end="")
@@ -243,14 +262,16 @@ def main(in_paths, out_path, is_mask, pixel_size):
 
     if dtype == np.uint32:
         if is_mask:
-            ome_dtype = 'uint32'
+            ome_dtype = "uint32"
         else:
-            print("uint32 images are only supported in --mask mode. Please contact the authors if you need support for intensity-based uint32 images.")
+            print(
+                "uint32 images are only supported in --mask mode. Please contact the authors if you need support for intensity-based uint32 images."
+            )
             sys.exit(1)
     elif dtype == np.uint16:
-        ome_dtype = 'uint16'
+        ome_dtype = "uint16"
     elif dtype == np.uint8:
-        ome_dtype = 'uint8'
+        ome_dtype = "uint8"
     else:
         print("can't handle dtype: %s" % dtype)
         sys.exit(1)
@@ -261,23 +282,33 @@ def main(in_paths, out_path, is_mask, pixel_size):
     patch_ometiff_xml(out_path, xml)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "in_paths", metavar="input.tif", type=pathlib.Path, nargs="+",
+        "in_paths",
+        metavar="input.tif",
+        type=pathlib.Path,
+        nargs="+",
         help="List of TIFF files to combine. All images must have the same dimensions and pixel type.",
     )
     parser.add_argument(
-        "out_path", metavar="output.tif", type=pathlib.Path,
+        "out_path",
+        metavar="output.tif",
+        type=pathlib.Path,
         help="Output filename. Script will exit immediately if file exists.",
     )
     parser.add_argument(
-        "--pixel-size", metavar="SIZE", type=float, default=1.0,
+        "--pixel-size",
+        metavar="SIZE",
+        type=float,
+        default=1.0,
         help="size in microns; default is 1.0",
     )
     parser.add_argument(
-        "--mask", action="store_true", default=False,
+        "--mask",
+        action="store_true",
+        default=False,
         help="adjust processing for label mask or binary mask images (currently just switch to nearest-neighbor downsampling)",
     )
     args = parser.parse_args()

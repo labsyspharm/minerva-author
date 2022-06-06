@@ -1,4 +1,4 @@
-name: build-environment 
+name: author
 channels:
   - conda-forge
 dependencies:
@@ -10,13 +10,17 @@ dependencies:
   - matplotlib=3.3.3
   - tifffile=2020.12.4
   - imagecodecs=2020.5.30
+  - scikit-image=0.18.1
+  - pandas=1.3.2
+  - pooch=1.4.0
   - zarr
   - cython
-  - scikit-image
   - pyinstaller
+  - altair
   - pip
   - pip:
       - git+https://github.com/labsyspharm/minerva-lib-python@master#egg=minerva-lib
       - openslide-python>=1.1.2
+      - itsdangerous==2.0.1
       - ome-types>=0.2.4
       - opencv-python

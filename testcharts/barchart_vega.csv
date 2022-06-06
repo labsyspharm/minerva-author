@@ -1,0 +1,5 @@
+type,frequency
+Tumor,23000
+Stroma,25000
+Immune,32000
+Other,28000
