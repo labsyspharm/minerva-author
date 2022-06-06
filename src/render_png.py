@@ -43,15 +43,18 @@ def hsv2rgba(hsv_buff):
     return np.concatenate((rgb, alpha), axis=2)
 
 
-def spike(image):
-    buff = np.zeros(image.shape + (4,), np.float64)
-    star_hue = 1 / 3 + 1 / 100
-    star_sat = 1 / 7 + 1 / 1000
-    star_val = 1 / 2 + 1 / 100
+def spike(image, opacity=None):
+    buff = np.zeros(image.shape + (4, ), np.float64)
+    star_hue = 1/3 + 1/100
+    star_sat = 1/7 + 1/1000
+    star_val = 1/2 + 1/100
     buff[:, :, 0] = np.modf(image * star_hue)[0]
     buff[:, :, 1] = mix(0.6, 1.0, np.modf(image * star_sat)[0])
     buff[:, :, 2] = mix(0.2, 0.9, np.modf(image * star_val)[0])
-    buff[:, :, 3][image != 0] = 1.0
+    if not opacity: 
+        buff[:, :, 3][image != 0] = 1.0
+    else:
+        buff[:, :, 3][image != 0] = opacity
     return buff
 
 
@@ -62,13 +65,14 @@ def colorize_integer(integer):
     ][:3]
 
 
-def colorize_mask(target, image):
-    """Render _image_ in pseudocolor into _target_
+def colorize_mask(target, image, opacity):
+    ''' Render _image_ in pseudocolor into _target_
     Args:
         target: Numpy uint8 array containing RGBA composition target
         image: Numpy integer array of image to render and composite
-    """
-    rgba_buff = hsv2rgba(spike(image))
+        opacity: float value (0-1) representing alpha value
+    '''
+    rgba_buff = hsv2rgba(spike(image, opacity))
     target[:] = np.around(255 * rgba_buff).astype(np.uint8)
     return target
 

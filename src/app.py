@@ -417,9 +417,9 @@ class Opener:
             target = np.zeros(tile.shape + (4,), np.uint8)
             skip_empty_tile = True
 
-            for channel in image_params["settings"]["channels"]:
-                rgba_color = [int(255 * i) for i in (colors.to_rgba(channel["color"]))]
-                ids = channel["ids"]
+            for channel in image_params['settings']['channels']:
+                rgba_color = [int(255 * i) for i in (colors.to_rgba(channel['color'], channel['opacity']))]
+                ids = channel['ids']
 
                 if len(ids) > 0:
                     bool_tile = np.isin(tile, ids)
@@ -429,7 +429,7 @@ class Opener:
                         target[bool_tile] = rgba_color
                 else:
                     # Handle masks that color cells individually
-                    target = colorize_mask(target, tile)
+                    target = colorize_mask(target, tile, channel['opacity'])
                     skip_empty_tile = False
 
             if skip_empty_tile:
@@ -1208,21 +1208,18 @@ def make_mask_rows(out_dir, mask_data, session):
             mask_opener = mask_params["opener"]
             num_levels = mask_opener.get_shape()[1]
             mask_total = _calculate_total_tiles(mask_opener, 1024, num_levels)
-            mask_params["images"].append(
-                {
-                    "settings": {
-                        "channels": [
-                            {"ids": c["ids"], "color": "#" + c["color"]}
-                            for c in mask["channels"]
-                        ],
-                        "source": str(mask_path),
-                    },
-                    "progress": create_progress_callback(mask_total, session, str(i)),
-                    "out_path": pathlib.Path(
-                        mask_path_from_index(mask_data, i, out_dir)
-                    ),
-                }
-            )
+            mask_params['images'].append({
+                'settings': {
+                    'channels': [{
+                        'ids': c['ids'],
+                        'color': '#'+c['color'],
+                        'opacity': c['opacity']
+                    } for c in mask['channels']],
+                    'source': str(mask_path)
+                },
+                'progress': create_progress_callback(mask_total, session, str(i)),
+                'out_path': pathlib.Path(mask_path_from_index(mask_data, i, out_dir))
+            })
             all_mask_params[mask_path] = mask_params
         else:
             print(f"Unable to access mask at {mask_path}")
