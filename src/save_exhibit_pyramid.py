@@ -7,11 +7,15 @@ from distutils import file_util
 from distutils.errors import DistutilsFileError
 from json.decoder import JSONDecodeError
 
+import numpy as np
+from PIL import Image
+import tifffile as tiff
+from matplotlib import colors
 from tifffile.tifffile import TiffFileError
 
 from app import Opener, extract_story_json_stem, make_groups, make_rows, make_stories
 from storyexport import deduplicate_data, copy_vega_csv
-from render_jpg import render_color_tiles
+from render_jpg import render_color_tiles, composite_channel
 
 
 def json_to_html(exhibit):
@@ -78,10 +82,12 @@ def set_if_not_none(exhibit, key, value):
     return exhibit
 
 
-def make_exhibit_config(opener, root_url, saved):
+def make_exhibit_config(in_shape, root_url, saved):
 
+    levels = in_shape['levels']
+    height = in_shape['height']
+    width = in_shape['width']
     waypoint_data = saved["waypoints"]
-    (num_channels, num_levels, width, height) = opener.get_shape()
     vis_path_dict = deduplicate_data(waypoint_data, "data")
 
     exhibit = {
@@ -92,7 +98,7 @@ def make_exhibit_config(opener, root_url, saved):
                 "Path": root_url if root_url else ".",
                 "Width": width,
                 "Height": height,
-                "MaxLevel": num_levels - 1,
+                "MaxLevel": levels - 1,
             }
         ],
         "Header": saved["sample_info"]["text"],
@@ -112,6 +118,52 @@ def make_exhibit_config(opener, root_url, saved):
     return exhibit
 
 
+def to_one_tile(one_tile, settings):
+
+    (height, width) = one_tile.shape[:2]
+    target = np.zeros((height, width, 3), np.float32)
+
+    for i, (marker, color, start, end) in enumerate(
+        zip(
+            settings["Channel Number"],
+            settings["Color"],
+            settings["Low"],
+            settings["High"],
+        )
+    ):
+        tile = one_tile[:, :, int(marker)]
+
+        if np.issubdtype(tile.dtype, np.unsignedinteger):
+            iinfo = np.iinfo(tile.dtype)
+            start *= iinfo.max
+            end *= iinfo.max
+
+        composite_channel(
+            target, tile, colors.to_rgb(color), float(start), float(end)
+        )
+
+    np.clip(target, 0, 1, out=target)
+    target_u8 = np.rint(target * 255).astype(np.uint8)
+    return Image.frombytes("RGB", target.T.shape[1:], target_u8.tobytes())
+
+
+def render_one_tile(one_tile, output_dir, config_rows):
+    print("    level {} ({} x {})".format(0, 0, 0))
+    filename = "{}_{}_{}.{}".format(0, 0, 0, "jpg")
+
+    output_path = pathlib.Path(output_dir)
+    if not output_path.exists():
+        output_path.mkdir(parents=True)
+
+    for settings in config_rows:
+        group_dir = settings["Group Path"]
+        if not (output_path / group_dir).exists():
+            (output_path / group_dir).mkdir(parents=True)
+        output_file = str(output_path / group_dir / filename)
+        img = to_one_tile(one_tile, settings)
+        img.save(output_file, quality=85)
+
+
 def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
     FORMATTER = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -122,6 +174,7 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
     ch.setFormatter(FORMATTER)
     logger.addHandler(ch)
 
+    one_tile = None
     opener = None
     saved = None
 
@@ -131,6 +184,24 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
         logger.error(e)
         logger.error(f"Invalid ome-tiff file: cannot parse {ome_tiff}")
         return
+
+    in_shape = None
+    # Treat as static tiff
+    if opener.reader is None:
+        print('Opening single tile plain .tif')
+        one_tile = tiff.imread(ome_tiff)
+        in_shape = {
+            'levels': 1,
+            'height': one_tile.shape[0],
+            'width': one_tile.shape[1],
+        }
+    else:
+        (levels, width, height) = opener.get_shape()[1:]
+        in_shape = {
+            'levels': levels,
+            'height': height,
+            'width': width,
+        }
 
     try:
         with open(author_json) as json_file:
@@ -149,7 +220,7 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
     if not output_dir.exists():
         output_dir.mkdir(parents=True)
 
-    exhibit_config = make_exhibit_config(opener, root_url, saved)
+    exhibit_config = make_exhibit_config(in_shape, root_url, saved)
     copy_vis_csv_files(saved["waypoints"], author_json, output_dir, vis_dir)
 
     with open(output_dir / "exhibit.json", "w") as wf:
@@ -159,7 +230,11 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
         exhibit_string = json.dumps(exhibit_config)
         wf.write(json_to_html(exhibit_string))
 
-    render(opener, saved, output_dir, logger)
+    if opener.reader is None:
+        config_rows = list(make_rows(saved["groups"]))
+        render_one_tile(one_tile, output_dir, config_rows)
+    else:
+        render(opener, saved, output_dir, logger)
 
 
 if __name__ == "__main__":
