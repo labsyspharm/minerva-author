@@ -6,4 +6,4 @@ services:
     - "2020:2020"
 
     volumes:
-      - /my/local/path/:/opt/data-volume
+      - /my/local/path:/opt/data-volume

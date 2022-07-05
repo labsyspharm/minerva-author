@@ -88,3 +88,35 @@ Fetch OpenSlide binaries from https://openslide.org/download/#windows-binaries a
 package_win.bat
 ```
 
+### Docker
+#### Using docker-compose
+
+To run the application using docker-compose, edit the '/my/local/path' path in the docker-compose.yaml to a directory 
+which either contains your images or to a directory upstream:
+```
+/my/local/path:/opt/data-volume
+```
+Navigate to the root directory of the minerva-author repository and then run:
+```
+docker-compose up
+```
+A Docker image should be built and run. If subsequent code changes are made use the following command to ensure 
+changes are incorporated:
+```
+docker-compose up --build
+```
+
+#### Using docker build/run
+
+Alternatively a Docker image can be built and run without using docker-compose.
+To build the Docker image navigate to the root minerva-author directory (this will contain the Dockerfile).
+Then run this command:
+
+```
+docker build -t minerva-author .
+```
+
+To run the image after being built, annotate the '/my/local/path' to the path where your images exist:
+```
+docker run -p 2020:2020 -v /my/local/path:/opt/data-volume minerva-author
+```
