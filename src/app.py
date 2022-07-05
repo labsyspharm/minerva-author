@@ -1704,7 +1704,10 @@ def file_browser():
         Contents of the directory specified by path
         (or parent directory, if parent parameter is set)
     """
-    folder = request.args.get("path")
+    if "Docker" in sys.argv and (request.args.get("path") == "" or request.args.get("path") == "/opt/src"):
+        folder = "/opt/data-volume/"
+    else:
+        folder = request.args.get("path")
     orig_folder = folder
     parent = request.args.get("parent")
     if folder is None or folder == "":
@@ -1822,6 +1825,9 @@ if __name__ == "__main__":
     if "--dev" in sys.argv:
         open_browser()
         app.run(debug=False, port=PORT)
+    elif "Docker" in sys.argv:
+        open_browser()
+        app.run(host="0.0.0.0", port=PORT, debug=False)
     else:
         open_browser()
         serve(app, listen="127.0.0.1:" + str(PORT), threads=10)

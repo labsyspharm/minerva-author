@@ -1,0 +1,9 @@
+version: '3.2'
+services:
+  api:
+    build: .
+    ports:
+    - "2020:2020"
+
+    volumes:
+      - /my/local/path/:/opt/data-volume
