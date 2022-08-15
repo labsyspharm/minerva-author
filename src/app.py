@@ -76,6 +76,13 @@ PORT = 2020
 
 FORMATTER = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
+def gamma_correct_float(float_tile, gamma):
+    return np.power(float_tile, gamma)
+
+def gamma_correct(tile, gamma):
+    float_tile = np.float32(tile) / 255
+    new_float_tile = gamma_correct_float(float_tile, gamma) 
+    return np.round(new_float_tile * 255).astype(np.uint8)
 
 def check_ext(path):
     base, ext1 = os.path.splitext(path)
@@ -474,7 +481,7 @@ class Opener:
                         with open(empty_file, "w"):
                             pass
 
-    def return_tile(self, output_file, settings, tile_size, level, tx, ty):
+    def return_tile(self, output_file, settings, tile_size, level, tx, ty, gamma):
         if self.reader == "tifffile" and self.is_rgba("3 channel"):
 
             num_channels = self.get_shape()[0]
@@ -486,14 +493,16 @@ class Opener:
             tile[:, :, 1] = tile_1
             tile[:, :, 2] = tile_2
 
-            return Image.fromarray(tile, "RGB")
+            g_tile = gamma_correct(tile, gamma)
+            return Image.fromarray(g_tile, "RGB")
 
         elif self.reader == "tifffile" and self.is_rgba("1 channel"):
 
             num_channels = self.get_shape()[0]
             tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
 
-            return Image.fromarray(tile, "RGB")
+            g_tile = gamma_correct(tile, gamma)
+            return Image.fromarray(g_tile, "RGB")
 
         elif self.reader == "tifffile":
             target = None
@@ -523,16 +532,19 @@ class Opener:
                 )
 
             if target is not None:
-                np.clip(target, 0, 1, out=target)
-                target_u8 = np.rint(target * 255).astype(np.uint8)
-                return Image.frombytes("RGB", target.T.shape[1:], target_u8.tobytes())
+                g_target = gamma_correct_float(target, gamma)
+                np.clip(g_target, 0, 1, out=g_target)
+                g_target_u8 = np.rint(target * 255).astype(np.uint8)
+                return Image.frombytes("RGB", target.T.shape[1:], g_target_u8.tobytes())
 
         elif self.reader == "openslide":
+            # Gamma Correction not implemented
             reverse_level = self.dz.level_count - 1 - level
             return self.dz.get_tile(reverse_level, (tx, ty))
 
     def save_tile(self, output_file, settings, tile_size, level, tx, ty):
-        img = self.return_tile(output_file, settings, tile_size, level, tx, ty)
+        args = (output_file, settings, tile_size, level, tx, ty, 1)
+        img = self.return_tile(*args)
         img.save(output_file, quality=85)
 
 
@@ -1268,17 +1280,19 @@ def make_exhibit_config(opener, out_name, data):
 def render_image_tile(output_file, settings, **kwargs):
     tile_size = kwargs.get("tile_size", 1024)
     level = kwargs.get("level", 0)
+    gamma = kwargs.get("gamma", 1)
     tx = kwargs.get("tx", 0)
     ty = kwargs.get("ty", 0)
     opener = kwargs["opener"]
-    img = opener.return_tile(output_file, settings, tile_size, level, tx, ty)
+    args = (output_file, settings, tile_size, level, tx, ty, gamma)
+    img = opener.return_tile(*args)
     img_io = io.BytesIO()
     img.save(img_io, "JPEG", quality=85)
     img_io.seek(0)
     return img_io
 
 
-def add_image_tiles_to_dict(cache_dict, config_rows, opener, out_dir_rel):
+def add_image_tiles_to_dict(cache_dict, config_rows, opener, out_dir_rel, gamma):
     output_path = pathlib.Path(out_dir_rel)
     ext = "jpg"
 
@@ -1301,6 +1315,7 @@ def add_image_tiles_to_dict(cache_dict, config_rows, opener, out_dir_rel):
                     "kwargs": {
                         "opener": opener,
                         "tile_size": 1024,
+                        "gamma": gamma,
                         "level": level,
                         "tx": tx,
                         "ty": ty,
@@ -1388,6 +1403,7 @@ def api_preview(session):
         # Ensure path is relative to output directory
         out_dir_rel = get_story_folders(out_name, "")[0]
         out_dir_rel = pathlib.Path(*pathlib.Path(out_dir_rel).parts[1:])
+        gamma_out_dir = pathlib.Path("gamma", *out_dir_rel.parts)
 
         if invalid or not opener:
             return api_error(404, "Image file not found: " + str(path))
@@ -1418,7 +1434,10 @@ def api_preview(session):
 
         cache_dict = add_mask_tiles_to_dict(cache_dict, mask_config_rows)
         cache_dict = add_image_tiles_to_dict(
-            cache_dict, config_rows, opener, out_dir_rel
+            cache_dict, config_rows, opener, out_dir_rel, 1
+        )
+        cache_dict = add_image_tiles_to_dict(
+            cache_dict, config_rows, opener, gamma_out_dir, 1/2
         )
 
         G["preview_cache"][session] = cache_dict
