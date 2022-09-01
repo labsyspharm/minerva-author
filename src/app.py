@@ -576,7 +576,8 @@ def resource_path(relative_path):
         # PyInstaller creates a temp folder at _MEIPASS
         base_path = sys._MEIPASS
     except AttributeError:
-        base_path = os.path.abspath(".")
+        # More robust than "." but could break if this .py file moves.
+        base_path = pathlib.Path(__file__).parent.parent
 
     return os.path.join(base_path, relative_path)
 
