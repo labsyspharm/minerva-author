@@ -20,6 +20,8 @@ def composite_channel(target, image, color, range_min, range_max):
         range_min: Threshold range minimum (in terms of image pixel values)
         range_max: Threshold range maximum (in terms of image pixel values)
     """
+    if range_min == range_max:
+        return
     f_image = (image.astype("float32") - range_min) / (range_max - range_min)
     f_image = f_image.clip(0, 1, out=f_image)
     for i, component in enumerate(color):
