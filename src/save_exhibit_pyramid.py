@@ -32,7 +32,7 @@ def json_to_html(exhibit):
         '    <body>\n'
         '        <div id="minerva-browser" style="position: absolute; top: 0; left: 0; height: 100%; width: 100%;"></div>\n'
         '        <script defer src="https://use.fontawesome.com/releases/v5.2.0/js/all.js" integrity="sha384-4oV5EgaV02iISL2ban6c/RmotsABqE4yZxZLcYMAdG7FAPsyHYAPpywE9PJo+Khy" crossorigin="anonymous"></script>\n'
-        '        <script src="https://cdn.jsdelivr.net/npm/minerva-browser@3.2.6/build/bundle.js"></script>\n'
+        '        <script src="https://cdn.jsdelivr.net/npm/minerva-browser@3.2.7/build/bundle.js"></script>\n'
         '        <script>\n'
         '         window.viewer = MinervaStory.default.build_page({\n'
                      f'exhibit: {exhibit},\n'
