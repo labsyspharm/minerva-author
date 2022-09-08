@@ -532,10 +532,10 @@ class Opener:
                 )
 
             if target is not None:
-                g_target = gamma_correct_float(target, gamma)
-                np.clip(g_target, 0, 1, out=g_target)
-                g_target_u8 = np.rint(target * 255).astype(np.uint8)
-                return Image.frombytes("RGB", target.T.shape[1:], g_target_u8.tobytes())
+                target = gamma_correct_float(target, gamma)
+                np.clip(target, 0, 1, out=target)
+                target = np.rint(target * 255).astype(np.uint8)
+                return Image.frombytes("RGB", target.T.shape[1:], target.tobytes())
 
         elif self.reader == "openslide":
             # Gamma Correction not implemented
