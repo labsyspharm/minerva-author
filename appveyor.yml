@@ -1,0 +1,40 @@
+build: false
+image: Visual Studio 2017
+environment:
+  matrix:
+    - PYTHON_VERSION: 3.7
+      MINICONDA: C:\Miniconda37-x64
+init:
+  - "ECHO %PYTHON_VERSION% %MINICONDA%"
+
+artifacts:
+  - path: minerva_author.zip
+    name: MinervaAuthor
+
+install:
+  # Issues have been encountered with installing numpy and scipy on
+  # AppVeyor e.g.
+  # http://tjelvarolsson.com/blog/how-to-continuously-test-your-python-code-on-windows-using-appveyor/
+  # Miniconda is recommended as the way to install these. See also:
+  # https://github.com/appveyor/ci/issues/359
+  # The following adopts approaches suggested in the above links.
+  - call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvars64.bat"
+  - "set PATH=%MINICONDA%;%MINICONDA%\\Scripts;%PATH%"
+  - curl https://github.com/openslide/openslide-winbuild/releases/download/v20171122/openslide-win64-20171122.zip -L -o openslide.zip
+  - unzip openslide.zip
+  - move openslide-win64-20171122\bin\* src\
+  - git submodule update --init --recursive
+  - conda config --set always_yes yes --set changeps1 no
+  - conda config --add channels conda-forge
+  - conda update -q conda
+  - conda info -a
+  -	conda env create -f requirements.yml
+  - conda activate minerva-author
+  - copy "%CONDA_PREFIX%\Library\bin\libcrypto-1_1-x64.dll" "%CONDA_PREFIX%\DLLs\libcrypto-1_1-x64.dll"
+  - copy "%CONDA_PREFIX%\Library\bin\libssl-1_1-x64.dll" "%CONDA_PREFIX%\DLLs\libssl-1_1-x64.dll"
+
+build_script:
+  - pyinstaller -F --paths $env:CONDA_PREFIX --hidden-import="pkg_resources.py2_warn" --add-data "static;static" --add-data "minerva-story;minerva-story" --add-data "%CONDA_PREFIX%\Lib\site-packages\xmlschema\schemas;xmlschema\schemas" --icon icon.ico --name minerva_author src/app.py
+
+after_build:
+  - 7z a minerva_author.zip dist
