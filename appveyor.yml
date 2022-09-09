@@ -28,7 +28,7 @@ install:
   - conda config --add channels conda-forge
   - conda update -q conda
   - conda info -a
-  -	conda env create -f requirements.yml
+  - conda env create -f requirements.yml
   - conda activate minerva-author
   - copy "%CONDA_PREFIX%\Library\bin\libcrypto-1_1-x64.dll" "%CONDA_PREFIX%\DLLs\libcrypto-1_1-x64.dll"
   - copy "%CONDA_PREFIX%\Library\bin\libssl-1_1-x64.dll" "%CONDA_PREFIX%\DLLs\libssl-1_1-x64.dll"
