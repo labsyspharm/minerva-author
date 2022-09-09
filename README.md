@@ -36,7 +36,6 @@ Then run the following commands to set up the development environment:
 
 ```
 cd minerva-author
-git submodule update --init --recursive
 conda env create -f requirements.yml
 conda activate minerva-author
 ```

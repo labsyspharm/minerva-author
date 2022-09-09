@@ -38,9 +38,6 @@ jobs:
           conda install openslide
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Update the Minerva Story submodule
-        run: |
-          git submodule update --init --recursive
       - name: Copy dlls on Windows
         if: startsWith(matrix.os,'windows')
         shell: cmd /C CALL {0}
