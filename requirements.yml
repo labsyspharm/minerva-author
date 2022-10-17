@@ -1,23 +1,11 @@
-name: minerva-author
+name: minimal-issue
 channels:
   - conda-forge
 dependencies:
   - python=3.10
-  - nomkl=1.0
-  - numpy=1.23.3
-  - pillow=9.2.0
   - flask=2.2.2
   - waitress=2.1.2
-  - flask_cors=3.0.10
-  - matplotlib=3.6.1
-  - tifffile=2022.10.10
-  - imagecodecs=2022.9.26
-  - scikit-image=0.19.3
-  - pandas=1.5.0
-  - zarr=2.13.3
-  - altair=4.2.0
+  - numpy=1.23.3
   - pip=22.3
   - pip:
-      - openslide-python==1.2.0
-      - pyinstaller==5.5
-      - ome-types==0.3.1
+    - pyinstaller==5.5
