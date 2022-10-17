@@ -8,4 +8,4 @@ dependencies:
   - numpy=1.23.3
   - pip=22.3
   - pip:
-    - pyinstaller==5.5
+      - pyinstaller==5.5
