@@ -17,6 +17,8 @@ import skimage.transform
 import tifffile
 import zarr
 
+multiprocessing.freeze_support()
+
 # This API is apparently changing in skimage 1.0 but it's not clear to
 # me what the replacement will be, if any. We'll explicitly import
 # this so it will break loudly if someone tries this with skimage 1.0.
