@@ -1826,9 +1826,9 @@ def open_browser():
 
 
 G = reset_globals()
+multiprocessing.freeze_support()
 tiff_lock = multiprocessing.Lock()
 mask_lock = multiprocessing.Lock()
-multiprocessing.freeze_support()
 
 
 if __name__ == "__main__":
