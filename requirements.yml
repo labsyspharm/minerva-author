@@ -3,21 +3,21 @@ channels:
   - conda-forge
 dependencies:
   - python=3.10
-  - nomkl
-  - numpy=1.23.2
+  - nomkl=1.0
+  - numpy=1.23.3
   - pillow=9.2.0
-  - flask=1.1.4
-  - waitress=1.4.4
-  - flask_cors=3.0.9
-  - matplotlib=3.5.3
-  - tifffile=2022.8.12
-  - imagecodecs=2022.8.8
+  - flask=2.2.2
+  - waitress=2.1.2
+  - flask_cors=3.0.10
+  - matplotlib=3.6.1
+  - tifffile=2022.10.10
+  - imagecodecs=2022.9.26
   - scikit-image=0.19.3
-  - pandas=1.4.3
-  - zarr
-  - pyinstaller
-  - altair
-  - pip
+  - pandas=1.5.0
+  - zarr=2.13.3
+  - altair=4.2.0
+  - pip=22.3
   - pip:
       - openslide-python==1.2.0
+      - pyinstaller==5.5
       - ome-types==0.3.1
