@@ -72,6 +72,11 @@ if os.name == "nt":
     from ctypes import windll
 
 
+multiprocessing.freeze_support()
+tiff_lock = multiprocessing.Lock()
+mask_lock = multiprocessing.Lock()
+
+
 PORT = 2020
 
 FORMATTER = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -1824,12 +1829,7 @@ def close_import_pool():
 def open_browser():
     webbrowser.open_new("http://127.0.0.1:" + str(PORT) + "/")
 
-
 G = reset_globals()
-multiprocessing.freeze_support()
-tiff_lock = multiprocessing.Lock()
-mask_lock = multiprocessing.Lock()
-
 
 if __name__ == "__main__":
 
