@@ -32,6 +32,13 @@ git clone https://github.com/labsyspharm/minerva-author.git
  * install [homebrew](https://brew.sh/) and run `brew install openslide`.
  * Install [Anaconda](https://docs.anaconda.com/anaconda/install/mac-os/)
 
+Run this command to link the homebrew install location of openslide:
+
+```
+sudo mkdir /usr/local/lib
+sudo ln -s /opt/homebrew/lib/libopenslide.dylib /usr/local/lib/libopenslide.dylib
+```
+
 Then run the following commands to set up the development environment:
 
 ```
