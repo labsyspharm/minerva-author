@@ -12,6 +12,7 @@ import itertools
 import json
 import logging
 import multiprocessing
+multiprocessing.freeze_support()
 import pathlib
 from create_vega import (
     create_vega_dict,
@@ -72,7 +73,6 @@ if os.name == "nt":
     from ctypes import windll
 
 
-multiprocessing.freeze_support()
 tiff_lock = multiprocessing.Lock()
 mask_lock = multiprocessing.Lock()
 
