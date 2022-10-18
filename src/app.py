@@ -638,7 +638,12 @@ def convert_mask(path):
         os.mkdir(tmp_dir)
     if os.path.exists(tmp_path):
         os.remove(tmp_path)
-    make_ome([pathlib.Path(path)], pathlib.Path(tmp_path), is_mask=True, pixel_size=1)
+
+    num_workers = multiprocessing.cpu_count()
+    if hasattr(os, "sched_getaffinity"):
+        num_workers = len(os.sched_getaffinity(0))
+
+    make_ome([pathlib.Path(path)], pathlib.Path(tmp_path), True, 1, num_workers)
     os.rename(tmp_path, ome_path)
     if os.path.exists(tmp_dir) and not len(os.listdir(tmp_dir)):
         os.rmdir(tmp_dir)

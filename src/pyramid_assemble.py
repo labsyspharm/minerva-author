@@ -4,7 +4,6 @@ import argparse
 import concurrent.futures
 import io
 import itertools
-import multiprocessing
 import os
 import pathlib
 import re
@@ -16,8 +15,6 @@ import numpy as np
 import skimage.transform
 import tifffile
 import zarr
-
-multiprocessing.freeze_support()
 
 # This API is apparently changing in skimage 1.0 but it's not clear to
 # me what the replacement will be, if any. We'll explicitly import
@@ -145,17 +142,13 @@ def error(path, msg):
     sys.exit(1)
 
 
-def main(in_paths, out_path, is_mask, pixel_size):
+def main(in_paths, out_path, is_mask, pixel_size, num_workers):
 
     tile_size = 1024
 
     if out_path.exists():
         error(out_path, "Output file already exists, aborting.")
 
-    if hasattr(os, "sched_getaffinity"):
-        num_workers = len(os.sched_getaffinity(0))
-    else:
-        num_workers = multiprocessing.cpu_count()
     print(f"Using {num_workers} worker threads based on detected CPU count.")
     print()
 
