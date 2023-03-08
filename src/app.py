@@ -1197,6 +1197,7 @@ def make_groups(d):
             "Path": make_group_path(d, group),
             "Colors": [c["color"] for c in group["channels"]],
             "Channels": [c["label"] for c in group["channels"]],
+            "Descriptions": [c.get("info", "") for c in group["channels"]]
         }
 
 
