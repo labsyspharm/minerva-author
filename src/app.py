@@ -1524,7 +1524,12 @@ def api_import_groups():
         if not saved or "groups" not in saved:
             return api_error(400, "File contains invalid groups: " + str(input_file))
 
-        return jsonify({"groups": saved["groups"]})
+        out = {"groups": saved["groups"]}
+
+        if "defaults" in saved:
+            out["defaults"] = saved["defaults"]
+
+        return jsonify(out)
 
 
 def load_saved_file(input_file):
@@ -1548,6 +1553,7 @@ def copy_saved_states(from_save, to_save):
     saved_keys = [
         "sample_info",
         "waypoints",
+        "defaults",
         "groups",
         "masks",
         "in_file",
@@ -1631,6 +1637,9 @@ def api_import():
                 # This step could take up to a minute
                 response["masks"] = reload_all_mask_state_subsets(saved["masks"])
 
+            if "defaults" in saved:
+                response["defaults"] = saved["defaults"]
+
             response["waypoints"] = saved["waypoints"]
             response["groups"] = saved["groups"]
             for group in saved["groups"]:
@@ -1705,6 +1714,7 @@ def api_import():
                 "marker_csv_file": str(csv_file),
                 "input_image_file": str(input_image_file),
                 "waypoints": response.get("waypoints", []),
+                "defaults": response.get("defaults"),
                 "sample_info": response.get(
                     "sample_info", {"rotation": 0, "name": "", "text": ""}
                 ),
