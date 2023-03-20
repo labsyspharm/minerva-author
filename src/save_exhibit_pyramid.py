@@ -13,7 +13,7 @@ import tifffile as tiff
 from matplotlib import colors
 from tifffile.tifffile import TiffFileError
 
-from app import Opener, extract_story_json_stem, make_groups, make_rows, make_stories
+from app import Opener, extract_story_json_stem, make_channels, make_groups, make_rows, make_stories
 from storyexport import deduplicate_data, copy_vega_csv
 from render_jpg import render_color_tiles, composite_channel
 
@@ -105,6 +105,7 @@ def make_exhibit_config(in_shape, root_url, saved):
         "Rotation": saved["sample_info"]["rotation"],
         "Layout": {"Grid": [["i0"]]},
         "Stories": make_stories(waypoint_data, [], vis_path_dict),
+        "Channels": list(make_channels(saved["groups"])),
         "Groups": list(make_groups(saved["groups"])),
         "Masks": [],
     }

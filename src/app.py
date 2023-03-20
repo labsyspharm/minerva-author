@@ -1191,10 +1191,11 @@ def make_group_path(groups, group):
 
 
 def make_groups(d):
-    for group in d:
+    subgroups = list(make_subgroups(d))
+    for group in subgroups:
         yield {
             "Name": group["label"],
-            "Path": make_group_path(d, group),
+            "Path": make_group_path(subgroups, group),
             "Colors": [c["color"] for c in group["channels"]],
             "Channels": [c["label"] for c in group["channels"]],
             "Descriptions": [c.get("info", "") for c in group["channels"]]
@@ -1202,15 +1203,37 @@ def make_groups(d):
 
 
 def make_rows(d):
-    for group in d:
+    subgroups = list(make_subgroups(d))
+    for group in subgroups:
         channels = group["channels"]
         yield {
-            "Group Path": make_group_path(d, group),
+            "Group Path": make_group_path(subgroups, group),
             "Channel Number": [str(c["id"]) for c in channels],
             "Low": [c["min"] for c in channels],
             "High": [c["max"] for c in channels],
-            "Color": ["#" + c["color"] for c in channels],
+            "Color": ["#ffffff" for c in channels],
         }
+
+
+def make_channels(d):
+    subgroups = list(make_subgroups(d))
+    for group in subgroups:
+        yield {
+            "Name": group["label"],
+            "Path": make_group_path(subgroups, group),
+        }
+
+
+def make_subgroups(d):
+    for group in d:
+        renders = group["render"]
+        channels = group["channels"]
+        for channel, render in zip(channels, renders):
+            yield {
+                "render": [render],
+                "channels": [channel],
+                "label": channel["label"],
+            }
 
 
 def make_mask_rows(out_dir, mask_data, session):
@@ -1283,6 +1306,7 @@ def make_exhibit_config(opener, out_name, data):
         "Rotation": data["rotation"],
         "Layout": {"Grid": [["i0"]]},
         "Stories": make_stories(waypoint_data, mask_data, vis_path_dict),
+        "Channels": list(make_channels(group_data)),
         "Masks": list(make_mask_yaml(mask_data)),
         "Groups": list(make_groups(group_data)),
     }
