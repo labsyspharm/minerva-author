@@ -1191,11 +1191,9 @@ def make_group_path(groups, group):
 
 
 def make_groups(d):
-    subgroups = list(make_subgroups(d))
-    for group in subgroups:
+    for group in d:
         yield {
             "Name": group["label"],
-            "Path": make_group_path(subgroups, group),
             "Colors": [c["color"] for c in group["channels"]],
             "Channels": [c["label"] for c in group["channels"]],
             "Descriptions": [c.get("info", "") for c in group["channels"]]
@@ -1225,10 +1223,13 @@ def make_channels(d):
 
 
 def make_subgroups(d):
+    used = set()
     for group in d:
         renders = group["render"]
         channels = group["channels"]
         for channel, render in zip(channels, renders):
+            if channel["id"] in used: continue
+            used.add(channel["id"])
             yield {
                 "render": [render],
                 "channels": [channel],
