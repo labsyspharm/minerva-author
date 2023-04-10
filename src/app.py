@@ -1200,33 +1200,40 @@ def make_groups(d):
         }
 
 
-def make_rows(d):
-    subgroups = list(make_subgroups(d))
+def to_color(c, rgba):
+    return '#' + (c["color"] if rgba else "ffffff")
+
+
+def make_rows(d, rgba):
+    subgroups = list(make_subgroups(d, rgba))
     for group in subgroups:
-        channels = group["channels"]
+        channels = group["render"]
         yield {
             "Group Path": make_group_path(subgroups, group),
             "Channel Number": [str(c["id"]) for c in channels],
+            "Color": [to_color(c, rgba) for c in channels],
             "Low": [c["min"] for c in channels],
             "High": [c["max"] for c in channels],
-            "Color": ["#ffffff" for c in channels],
         }
 
 
-def make_channels(d):
-    subgroups = list(make_subgroups(d))
+def make_channels(d, rgba):
+    subgroups = list(make_subgroups(d, rgba))
     for group in subgroups:
         yield {
+            "Rendered": rgba,
             "Name": group["label"],
-            "Path": make_group_path(subgroups, group),
+            "Path": make_group_path(subgroups, group)
         }
 
 
-def make_subgroups(d):
+def make_subgroups(d, rgba):
     used = set()
     for group in d:
         renders = group["render"]
         channels = group["channels"]
+        if rgba:
+            yield group 
         for channel, render in zip(channels, renders):
             if channel["id"] in used: continue
             used.add(channel["id"])
@@ -1285,6 +1292,7 @@ def write_json_file(data):
 
 def make_exhibit_config(opener, out_name, data):
 
+    rgba = opener.rgba
     mask_data = data["masks"]
     group_data = data["groups"]
     waypoint_data = data["waypoints"]
@@ -1307,7 +1315,7 @@ def make_exhibit_config(opener, out_name, data):
         "Rotation": data["rotation"],
         "Layout": {"Grid": [["i0"]]},
         "Stories": make_stories(waypoint_data, mask_data, vis_path_dict),
-        "Channels": list(make_channels(group_data)),
+        "Channels": list(make_channels(group_data, rgba)),
         "Masks": list(make_mask_yaml(mask_data)),
         "Groups": list(make_groups(group_data)),
     }
@@ -1445,7 +1453,8 @@ def api_preview(session):
         if invalid or not opener:
             return api_error(404, "Image file not found: " + str(path))
 
-        config_rows = list(make_rows(request.json["groups"]))
+        rgba = opener.rgba
+        config_rows = list(make_rows(request.json["groups"], rgba))
         mask_config_rows = list(
             make_mask_rows(out_dir_rel, request.json["masks"], session)
         )
@@ -1507,10 +1516,11 @@ def api_render(session):
         if invalid or not opener:
             return api_error(404, "Image file not found: " + str(path))
 
+        rgba = opener.rgba
         data = request.json["groups"]
         mask_data = request.json["masks"]
         waypoint_data = request.json["waypoints"]
-        config_rows = list(make_rows(data))
+        config_rows = list(make_rows(data, rgba))
         create_story_base(out_name, waypoint_data, mask_data, folder=root_dir)
         exhibit_config = make_exhibit_config(opener, out_name, request.json)
 

@@ -46,8 +46,8 @@ def json_to_html(exhibit):
     )
 
 
-def render(opener, saved, output_dir, logger):
-    config_rows = list(make_rows(saved["groups"]))
+def render(opener, saved, output_dir, rgba, logger):
+    config_rows = list(make_rows(saved["groups"], rgba))
     render_color_tiles(opener, output_dir, 1024, config_rows, logger, None, False)
 
 
@@ -82,7 +82,7 @@ def set_if_not_none(exhibit, key, value):
     return exhibit
 
 
-def make_exhibit_config(in_shape, root_url, saved):
+def make_exhibit_config(in_shape, root_url, saved, rgba):
 
     levels = in_shape['levels']
     height = in_shape['height']
@@ -105,7 +105,7 @@ def make_exhibit_config(in_shape, root_url, saved):
         "Rotation": saved["sample_info"]["rotation"],
         "Layout": {"Grid": [["i0"]]},
         "Stories": make_stories(waypoint_data, [], vis_path_dict),
-        "Channels": list(make_channels(saved["groups"])),
+        "Channels": list(make_channels(saved["groups"], rgba)),
         "Groups": list(make_groups(saved["groups"])),
         "Masks": [],
     }
@@ -221,7 +221,8 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
     if not output_dir.exists():
         output_dir.mkdir(parents=True)
 
-    exhibit_config = make_exhibit_config(in_shape, root_url, saved)
+    rgba = opener.rgba
+    exhibit_config = make_exhibit_config(in_shape, root_url, saved, rgba)
     copy_vis_csv_files(saved["waypoints"], author_json, output_dir, vis_dir)
 
     with open(output_dir / "exhibit.json", "w") as wf:
@@ -232,10 +233,10 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
         wf.write(json_to_html(exhibit_string))
 
     if opener.reader is None:
-        config_rows = list(make_rows(saved["groups"]))
+        config_rows = list(make_rows(saved["groups"], rgba))
         render_one_tile(one_tile, output_dir, config_rows)
     else:
-        render(opener, saved, output_dir, logger)
+        render(opener, saved, output_dir, rgba, logger)
 
 
 if __name__ == "__main__":
