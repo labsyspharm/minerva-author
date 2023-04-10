@@ -1464,6 +1464,10 @@ def api_preview(session):
             "args": [exhibit_config],
             "mimetype": "text/json",
         }
+
+        js_index_filename = os.path.join(get_story_dir(), "bundle.js") #TODO
+        cache_dict["bundle.js"] = {"function": lambda: js_index_filename} #TODO
+
         index_filename = os.path.join(get_story_dir(), "index.html")
         cache_dict["index.html"] = {"function": lambda: index_filename}
         # TODO, development bundle
