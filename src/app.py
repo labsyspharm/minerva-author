@@ -1227,6 +1227,11 @@ def make_channels(d, rgba):
         }
 
 
+def compare(chan, render):
+    cmin = render["min"]
+    cmax = render["max"]
+    return f"{chan}-{cmin:1.4f}-{cmax:1.4f}"
+
 def make_subgroups(d, rgba):
     used = set()
     for group in d:
@@ -1235,8 +1240,9 @@ def make_subgroups(d, rgba):
         if rgba:
             yield group 
         for channel, render in zip(channels, renders):
-            if channel["id"] in used: continue
-            used.add(channel["id"])
+            ckey = compare(channel["id"], render)
+            if ckey in used: continue
+            used.add(ckey)
             yield {
                 "render": [render],
                 "channels": [channel],
