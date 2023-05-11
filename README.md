@@ -20,14 +20,22 @@ First, download this repository through the git command line:
 git clone https://github.com/labsyspharm/minerva-author.git
 ```
 
-**Windows**
+### Windows
 
  * [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
  * Install [Anaconda](https://docs.anaconda.com/anaconda/install/windows/)
  * Move [openslide](https://openslide.org/download/#windows-binaries) "bin" directory to "minerva-author/src"
  * Run `conda install -c anaconda git`
 
-**MacOS**
+Then run the following commands to set up the development environment:
+
+```
+cd minerva-author
+conda env create -f requirements.yml
+conda activate minerva-author
+```
+
+### MacOS
 
  * install [homebrew](https://brew.sh/) and run `brew install openslide`.
  * Install [Anaconda](https://docs.anaconda.com/anaconda/install/mac-os/)
