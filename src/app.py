@@ -28,7 +28,6 @@ from functools import update_wrapper, wraps
 from pathlib import Path
 
 # Needed for pyinstaller
-from imagecodecs import _imcd, _jpeg2k, _jpeg8, _zlib  # noqa
 from numcodecs import blosc, compat_ext  # noqa
 
 # Math tools
@@ -41,8 +40,6 @@ import ome_types
 from PIL import Image
 from tifffile import TiffFile
 from tifffile.tifffile import TiffFileError
-from openslide import OpenSlide
-from openslide.deepzoom import DeepZoomGenerator
 
 # Web App tools
 import webbrowser
@@ -248,19 +245,6 @@ class Opener:
             print("RGB ", self.rgba)
             print("RGB type ", self.rgba_type)
 
-        elif self.ext == ".svs":
-            self.io = OpenSlide(self.path)
-            self.dz = DeepZoomGenerator(
-                self.io, tile_size=1024, overlap=0, limit_bounds=True
-            )
-            self.reader = "openslide"
-            self.rgba = True
-            self.rgba_type = None
-            self.default_dtype = np.uint8
-
-            print("RGB ", self.rgba)
-            print("RGB type ", self.rgba_type)
-
         else:
             self.reader = None
 
@@ -318,9 +302,6 @@ class Opener:
             ny = int(np.ceil(self.group[level].shape[-2] / tile_size))
             nx = int(np.ceil(self.group[level].shape[-1] / tile_size))
             return (nx, ny)
-        elif self.reader == "openslide":
-            reverse_level = self.dz.level_count - 1 - level
-            return self.dz.level_tiles[reverse_level]
 
     def get_shape(self):
         def parse_shape(shape):
@@ -339,18 +320,6 @@ class Opener:
             num_levels = len([shape for shape in all_levels if max(shape[1:]) > 512])
             num_levels = max(num_levels, 1)
             return (num_channels, num_levels, shape_x, shape_y)
-
-        elif self.reader == "openslide":
-
-            (width, height) = self.io.dimensions
-
-            def has_one_tile(counts):
-                return max(counts) == 1
-
-            small_levels = list(filter(has_one_tile, self.dz.level_tiles))
-            level_count = self.dz.level_count - len(small_levels) + 1
-
-            return (3, level_count, width, height)
 
     def read_tiles(self, level, channel_number, tx, ty, tilesize):
         ix = tx * tilesize
@@ -408,11 +377,6 @@ class Opener:
                         tile = np.clip(tile, 0, 65535).astype(np.uint16)
 
             return Image.fromarray(tile, _format)
-
-        elif self.reader == "openslide":
-            reverse_level = self.dz.level_count - 1 - level
-            img = self.dz.get_tile(reverse_level, (tx, ty))
-            return img
 
     def generate_mask_tiles(
         self, filename, mask_params, tile_size, level, tx, ty, should_skip_tiles={}
@@ -541,11 +505,6 @@ class Opener:
                 np.clip(target, 0, 1, out=target)
                 target = np.rint(target * 255).astype(np.uint8)
                 return Image.frombytes("RGB", target.T.shape[1:], target.tobytes())
-
-        elif self.reader == "openslide":
-            # Gamma Correction not implemented
-            reverse_level = self.dz.level_count - 1 - level
-            return self.dz.get_tile(reverse_level, (tx, ty))
 
     def save_tile(self, output_file, settings, tile_size, level, tx, ty):
         args = (output_file, settings, tile_size, level, tx, ty, 1)
