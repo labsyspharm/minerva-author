@@ -110,8 +110,9 @@ def extract_story_json_stem(input_file):
 
 def yield_labels(opener, csv_file, chan_label, num_channels):
     label_num = 0
+    can_open_csv = False
     # First, try to load labels from CSV
-    if str(csv_file) != ".":
+    try:
         with open(csv_file, encoding="utf-8-sig") as cf:
             for row in csv.DictReader(cf):
                 if label_num < num_channels:
@@ -119,8 +120,8 @@ def yield_labels(opener, csv_file, chan_label, num_channels):
                     default = row.get("Marker Name", default)
                     yield chan_label.get(str(label_num), default)
                     label_num += 1
-    # Second, try to load labels from OME-XML
-    else:
+    except FileNotFoundError:
+        # Second, try to load labels from OME-XML
         for label in opener.load_xml_markers():
             yield label
             label_num += 1
@@ -1667,6 +1668,8 @@ def api_import():
                     saved = copy_saved_states(autosaved, saved)
 
             input_image_file = pathlib.Path(saved["in_file"])
+            if (data["missingpath"]):
+                input_image_file = pathlib.Path(data["missingpath"])
 
             if data["csvpath"]:
                 csv_file = pathlib.Path(data["csvpath"])
@@ -1683,14 +1686,17 @@ def api_import():
                 # This step could take up to a minute
                 response["masks"] = reload_all_mask_state_subsets(saved["masks"])
 
-            if "defaults" in saved:
-                response["defaults"] = saved["defaults"]
-
             response["waypoints"] = saved["waypoints"]
             response["groups"] = saved["groups"]
-            for group in saved["groups"]:
-                for chan in group["channels"]:
+
+            if "defaults" in saved:
+                response["defaults"] = saved["defaults"]
+                for chan in saved["defaults"]:
                     chan_label[str(chan["id"])] = chan["label"]
+            else:
+                for group in saved["groups"]:
+                    for chan in group["channels"]:
+                        chan_label[str(chan["id"])] = chan["label"]
         else:
             csv_file = pathlib.Path(data["csvpath"])
 
@@ -1721,7 +1727,8 @@ def api_import():
 
             (invalid, opener) = return_image_opener(str(input_image_file))
             if invalid or not opener:
-                return api_error(404, "Image file not found: " + str(input_image_file))
+                img_file = re.search("[^\\\/]*$", str(input_image_file))[0]
+                return api_error(404, "IMAGE ASK ERR: " + img_file)
 
             (num_channels, num_levels, width, height) = opener.get_shape()
 
@@ -1733,6 +1740,9 @@ def api_import():
         except Exception as e:
             print(e)
             return api_error(500, "Invalid tiff file")
+
+        # Copy defaults to channel label dictionary
+        chan_defaults = response.get("defaults", []);
 
         try:
             labels = list(yield_labels(opener, csv_file, chan_label, num_channels))
@@ -1760,7 +1770,7 @@ def api_import():
                 "marker_csv_file": str(csv_file),
                 "input_image_file": str(input_image_file),
                 "waypoints": response.get("waypoints", []),
-                "defaults": response.get("defaults"),
+                "defaults": response.get("defaults", []),
                 "sample_info": response.get(
                     "sample_info", {"rotation": 0, "name": "", "text": ""}
                 ),
