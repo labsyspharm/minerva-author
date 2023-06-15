@@ -120,7 +120,7 @@ def yield_labels(opener, csv_file, chan_label, num_channels):
                     default = row.get("Marker Name", default)
                     yield chan_label.get(str(label_num), default)
                     label_num += 1
-    except FileNotFoundError:
+    except (FileNotFoundError, IsADirectoryError):
         # Second, try to load labels from OME-XML
         for label in opener.load_xml_markers():
             yield label
