@@ -399,6 +399,8 @@ class Opener:
                 _format = fmt if fmt else "I;16"
 
                 if _format == "RGBA" and tile.dtype != np.uint32:
+                    # Custom for convolutional overlay
+                    tile = np.minimum(tile // 255, 255)
                     tile = tile.astype(np.uint32)
 
                 if _format == "I;16" and tile.dtype != np.uint16:
@@ -440,6 +442,13 @@ class Opener:
                     if not skip_empty_tile or np.any(bool_tile):
                         skip_empty_tile = False
                         target[bool_tile] = rgba_color
+                elif (tile.dtype != np.uint32):
+                    # Custom for convolutional overlay
+                    target[:,:,0] = 255
+                    target[:,:,1] = 255
+                    target[:,:,2] = 255
+                    target[:,:,3] = np.minimum(tile // 10, 255).astype(np.uint8)
+                    skip_empty_tile = False
                 else:
                     # Handle masks that color cells individually
                     target = colorize_mask(target, tile, channel['opacity'])
