@@ -96,7 +96,7 @@ def render_color_tiles(
             g: _check_duplicate(g, s, old_rows) for g, s in group_dirs.items()
         }
 
-    for level in range(num_levels):
+    for level in list(range(num_levels))[::-1]:
 
         (nx, ny) = opener.get_level_tiles(level, tile_size)
         print("    level {} ({} x {})".format(level, ny, nx))
