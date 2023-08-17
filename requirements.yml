@@ -19,5 +19,5 @@ dependencies:
   - pip=22.3
   - pip:
       - openslide-python==1.2.0
-      - pyinstaller==5.5
+      - pyinstaller==5.13
       - ome-types==0.4.1
