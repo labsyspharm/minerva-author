@@ -28,6 +28,7 @@ from functools import update_wrapper, wraps
 from pathlib import Path
 
 # Needed for pyinstaller
+from xsdata_pydantic_basemodel import hooks # noqa
 from imagecodecs import _imcd, _jpeg2k, _jpeg8, _zlib  # noqa
 from numcodecs import blosc, compat_ext  # noqa
 
@@ -110,16 +111,29 @@ def extract_story_json_stem(input_file):
 
 def yield_labels(opener, csv_file, chan_label, num_channels):
     label_num = 0
+    no_header = False
     can_open_csv = False
     # First, try to load labels from CSV
     try:
+        # Assume header
         with open(csv_file, encoding="utf-8-sig") as cf:
             for row in csv.DictReader(cf):
+                if not ("marker_name" in row or "Marker Name" in row):
+                    no_header = True
+                    break
                 if label_num < num_channels:
                     default = row.get("marker_name", str(label_num))
                     default = row.get("Marker Name", default)
                     yield chan_label.get(str(label_num), default)
                     label_num += 1
+
+        # Handle without header
+        with open(csv_file, encoding="utf-8-sig") as cf:
+            for row in csv.reader(cf):
+                if label_num < num_channels and len(row) == 1 and no_header:
+                    yield chan_label.get(str(label_num), row[0] or str(label_num))
+                    label_num += 1
+
     except (FileNotFoundError, IsADirectoryError):
         # Second, try to load labels from OME-XML
         for label in opener.load_xml_markers():
@@ -217,6 +231,7 @@ class Opener:
                 self.group = root
             print("OME ", self.ome_version)
             num_channels = self.get_shape()[0]
+            print(num_channels, 'channels')
 
             # Backup approach to dimension order
             metadata = self.read_metadata()
@@ -1692,11 +1707,15 @@ def api_import():
             if "defaults" in saved:
                 response["defaults"] = saved["defaults"]
                 for chan in saved["defaults"]:
-                    chan_label[str(chan["id"])] = chan["label"]
+                    k = str(chan["id"])
+                    if k == chan["label"]: continue
+                    chan_label[k] = chan["label"]
             else:
                 for group in saved["groups"]:
                     for chan in group["channels"]:
-                        chan_label[str(chan["id"])] = chan["label"]
+                        k = str(chan["id"])
+                        if k == chan["label"]: continue
+                        chan_label[k] = chan["label"]
         else:
             csv_file = pathlib.Path(data["csvpath"])
 
@@ -1910,9 +1929,16 @@ if __name__ == "__main__":
 
     sys.stdout.reconfigure(line_buffering=True)
 
+    num_workers = multiprocessing.cpu_count()
+    if hasattr(os, "sched_getaffinity"):
+        num_workers = len(os.sched_getaffinity(0))
+    num_workers = min(num_workers, multiprocessing.cpu_count() - 2)
+
+    plural = 's' if num_workers > 1 else ''
+    print(f'Using {num_workers} thread{plural}')
     if "--dev" in sys.argv:
         open_browser()
         app.run(debug=False, port=PORT)
     else:
         open_browser()
-        serve(app, listen="127.0.0.1:" + str(PORT), threads=10)
+        serve(app, listen="127.0.0.1:" + str(PORT), threads=num_workers, channel_timeout=15)
