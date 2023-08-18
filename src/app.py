@@ -1326,6 +1326,10 @@ def make_exhibit_config(opener, out_name, data):
         "Masks": list(make_mask_yaml(mask_data)),
         "Groups": list(make_groups(group_data)),
     }
+    pixels_per_micron = data["image"].get("pixels_per_micron", 0)
+    if pixels_per_micron != 0:
+        _config["PixelsPerMicron"] = pixels_per_micron
+
     return _config
 
 
@@ -1744,6 +1748,15 @@ def api_import():
         # Copy defaults to channel label dictionary
         chan_defaults = response.get("defaults", []);
 
+        pixels_per_micron = 0
+        try:
+            metadata = opener.read_metadata()
+            pixels = metadata.images[0].pixels
+            pixel_microns = pixels.physical_size_x_quantity.to('um').m
+            pixels_per_micron = 1/pixel_microns if pixel_microns > 0 else 0
+        except Exception:
+            return api_error(500, "Error in loading channel marker names")
+
         try:
             labels = list(yield_labels(opener, csv_file, chan_label, num_channels))
         except Exception:
@@ -1772,7 +1785,10 @@ def api_import():
                 "waypoints": response.get("waypoints", []),
                 "defaults": response.get("defaults", []),
                 "sample_info": response.get(
-                    "sample_info", {"rotation": 0, "name": "", "text": ""}
+                    "sample_info", {
+                        "rotation": 0, "name": "", "text": "",
+                        "pixels_per_micron": pixels_per_micron
+                    }
                 ),
                 "masks": response.get("masks", []),
                 "groups": response.get("groups", []),
