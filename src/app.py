@@ -1208,7 +1208,8 @@ def to_color(c, rgba):
 def make_rows(d, rgba):
     subgroups = list(make_subgroups(d, rgba))
     for group in subgroups:
-        channels = group["render"]
+        channels = group["channels"]
+        channels = group.get("render", channels)
         yield {
             "Group Path": make_group_path(subgroups, group),
             "Channel Number": [str(c["id"]) for c in channels],
@@ -1236,8 +1237,8 @@ def compare(chan, render):
 def make_subgroups(d, rgba):
     used = set()
     for group in d:
-        renders = group["render"]
         channels = group["channels"]
+        renders = group.get("render", channels)
         if rgba:
             yield group 
         for channel, render in zip(channels, renders):
