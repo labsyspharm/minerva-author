@@ -10,7 +10,7 @@ dependencies:
   - waitress=2.1.2
   - flask_cors=3.0.10
   - matplotlib=3.6.1
-  - tifffile=2022.10.10
+  - tifffile=2023.7.18
   - scikit-image=0.19.3
   - pandas=1.5.0
   - zarr=2.13.3

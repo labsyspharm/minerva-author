@@ -38,8 +38,7 @@ from matplotlib import colors
 import zarr
 import ome_types
 from PIL import Image
-from tifffile import TiffFile
-from tifffile.tifffile import TiffFileError
+import tifffile
 
 # Web App tools
 import webbrowser
@@ -77,6 +76,11 @@ mask_lock = multiprocessing.Lock()
 PORT = 2020
 
 FORMATTER = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+def custom_log_warning(msg, *args, **kwargs):
+    raise Exception(msg)
+
+tifffile.tifffile.log_warning = custom_log_warning
 
 def gamma_correct_float(float_tile, gamma):
     return np.power(float_tile, gamma)
@@ -201,10 +205,10 @@ class Opener:
 
         if self.ext == ".ome.tif" or self.ext == ".ome.tiff":
             self.reader = "tifffile"
-            self.io = TiffFile(self.path)
+            self.io = tifffile.TiffFile(self.path)
             self.ome_version = self._get_ome_version()
             if self.ome_version == 5:
-                self.io = TiffFile(self.path, is_ome=False)
+                self.io = tifffile.TiffFile(self.path, is_ome=False)
             self.group = zarr.open(self.io.series[0].aszarr())
             # Treat non-pyramids as groups of one array
             if isinstance(self.group, zarr.core.Array):
@@ -575,7 +579,7 @@ def return_opener(path, key):
         try:
             opener = Opener(path)
             return opener if opener.reader is not None else None
-        except (FileNotFoundError, TiffFileError) as e:
+        except (FileNotFoundError) as e:
             print(e)
             return None
     else:
