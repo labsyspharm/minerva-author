@@ -176,6 +176,14 @@ def get_empty_path(path):
     basename = os.path.splitext(path)[0]
     return pathlib.Path(f"{basename}_tmp.txt")
 
+def parse_shape(shape):
+    if len(shape) >= 3:
+        (num_channels, shape_y, shape_x) = shape[-3:]
+    else:
+        (shape_y, shape_x) = shape
+        num_channels = 1
+
+    return (num_channels, shape_x, shape_y)
 
 class ZarrWrapper:
     def __init__(self, group, dimensions):
@@ -314,39 +322,52 @@ class Opener:
         else:
             return self.rgba and rgba_type == self.rgba_type
 
+    def validate_reader_level(self, level, tile_size):
+        (num_levels, width, height) = opener.get_shape()[1:]
+        peak_size = min(tile_size, max(width, height))
+
+        # Ensure downsampling available for level at needed tile size
+        all_levels = [parse_shape(v.shape)[1:] for v in self.group.values()]
+        valid_levels = [shape for shape in all_levels if max(shape) >= peak_size]
+
+        # Insufficient levels for desired resolution
+        if len(valid_levels) <= level:
+            return None
+        # Return original level
+        return level
+
     def get_level_tiles(self, level, tile_size):
         if self.reader == "tifffile":
 
-            # Negative indexing to support shape len 3 or len 2
-            ny = int(np.ceil(self.group[level].shape[-2] / tile_size))
-            nx = int(np.ceil(self.group[level].shape[-1] / tile_size))
-            return (nx, ny)
+            (width, height) = opener.get_shape()[2:]
+            level_tile = tile_size*2**level
+            return (
+                int(np.ceil(width / level_tile)),
+                int(np.ceil(height / level_tile))
+            )
 
     def get_shape(self):
-        def parse_shape(shape):
-            if len(shape) >= 3:
-                (num_channels, shape_y, shape_x) = shape[-3:]
-            else:
-                (shape_y, shape_x) = shape
-                num_channels = 1
 
-            return (num_channels, shape_x, shape_y)
+        tile_size=1024
 
         if self.reader == "tifffile":
 
             (num_channels, shape_x, shape_y) = parse_shape(self.group[0].shape)
-            all_levels = [parse_shape(v.shape) for v in self.group.values()]
-            num_levels = len([shape for shape in all_levels if max(shape[1:]) > 512])
-            num_levels = max(num_levels, 1)
+
+            peak_size = tile_size # smallest level
+            max_shape = max(shape_y, shape_x)
+            num_levels = max(
+                1, 1 + int(np.ceil(np.log2(max_shape / peak_size)))
+            )
             return (num_channels, num_levels, shape_x, shape_y)
 
-    def read_tiles(self, level, channel_number, tx, ty, tilesize):
+    def read_tiles(self, zarr_level, channel_number, tx, ty, tilesize):
         ix = tx * tilesize
         iy = ty * tilesize
 
         try:
             tile = self.wrapper[
-                level, ix : ix + tilesize, iy : iy + tilesize, 0, channel_number, 0
+                zarr_level, ix : ix + tilesize, iy : iy + tilesize, 0, channel_number, 0
             ]
             return tile
         except Exception as e:
@@ -359,12 +380,17 @@ class Opener:
 
         if self.reader == "tifffile":
 
-            tile = self.read_tiles(level, channel_number, tx, ty, tilesize)
-
-            if tile is None:
-                return np.zeros((tilesize, tilesize), dtype=self.default_dtype)
-
-            return tile
+            needed_tiles = self.get_level_tiles(level, tilesize)
+            zarr_level = self.validate_reader_level(level, tilesize)
+            if zarr_level is not None:
+                tile = self.read_tiles(zarr_level, channel_number, tx, ty, tilesize)
+                if tile is not None:
+                    return tile
+            else:
+                logger.warning(f'No level {level} for {tilesize} exists in image pyramid.')
+            
+        # Invalid empty tile
+        return np.zeros((tilesize, tilesize), dtype=self.default_dtype)
 
     def get_tile(self, num_channels, level, tx, ty, channel_number, fmt=None):
 
