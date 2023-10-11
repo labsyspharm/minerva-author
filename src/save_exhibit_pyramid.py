@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import pathlib
+import threading
 from distutils import file_util
 from distutils.errors import DistutilsFileError
 from json.decoder import JSONDecodeError
@@ -47,9 +48,32 @@ def json_to_html(exhibit):
 
 
 def render(opener, saved, output_dir, rgba, logger):
-    config_rows = list(make_rows(saved["groups"], rgba))
-    render_color_tiles(opener, output_dir, 1024, config_rows, logger, None, False)
 
+    n_threads = 1
+    threads = []
+
+    try:
+        n_threads = len(os.sched_getaffinity(0))
+    except AttributeError:
+        n_threads = os.cpu_count()
+
+    print(f'Using {n_threads} threads')
+
+    config_rows = list(make_rows(saved["groups"], rgba))
+
+    for thread in range(n_threads):
+        th_args = (opener, output_dir, 1024, config_rows, logger, None, False)
+        th_kwargs = {'thread': thread,'n_threads': n_threads}
+        th = threading.Thread(target=render_color_tiles, args=th_args, kwargs=th_kwargs)
+        threads.append(th)
+
+    for th in threads:
+        th.start()
+
+    for th in threads:
+        th.join()
+
+    print(f'{n_threads} threads complete')
 
 def copy_vis_csv_files(waypoint_data, json_path, output_dir, vis_dir):
     input_dir = json_path.parent
