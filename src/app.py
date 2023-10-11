@@ -111,17 +111,31 @@ def extract_story_json_stem(input_file):
 
 def yield_labels(opener, csv_file, chan_label, num_channels):
     label_num = 0
+    no_header = False
+    can_open_csv = False
     # First, try to load labels from CSV
-    if str(csv_file) != ".":
+    try:
+        # Assume header
         with open(csv_file, encoding="utf-8-sig") as cf:
             for row in csv.DictReader(cf):
+                if not ("marker_name" in row or "Marker Name" in row):
+                    no_header = True
+                    break
                 if label_num < num_channels:
                     default = row.get("marker_name", str(label_num))
                     default = row.get("Marker Name", default)
                     yield chan_label.get(str(label_num), default)
                     label_num += 1
-    # Second, try to load labels from OME-XML
-    else:
+
+        # Handle without header
+        with open(csv_file, encoding="utf-8-sig") as cf:
+            for row in csv.reader(cf):
+                if label_num < num_channels and len(row) == 1 and no_header:
+                    yield chan_label.get(str(label_num), row[0] or str(label_num))
+                    label_num += 1
+
+    except (FileNotFoundError, IsADirectoryError):
+        # Second, try to load labels from OME-XML
         for label in opener.load_xml_markers():
             yield label
             label_num += 1
@@ -217,6 +231,7 @@ class Opener:
                 self.group = root
             print("OME ", self.ome_version)
             num_channels = self.get_shape()[0]
+            print(num_channels, 'channels')
 
             # Backup approach to dimension order
             metadata = self.read_metadata()
@@ -1170,7 +1185,8 @@ def to_color(c, rgba):
 def make_rows(d, rgba):
     subgroups = list(make_subgroups(d, rgba))
     for group in subgroups:
-        channels = group["render"]
+        channels = group["channels"]
+        channels = group.get("render", channels)
         yield {
             "Group Path": make_group_path(subgroups, group),
             "Channel Number": [str(c["id"]) for c in channels],
@@ -1198,8 +1214,8 @@ def compare(chan, render):
 def make_subgroups(d, rgba):
     used = set()
     for group in d:
-        renders = group["render"]
         channels = group["channels"]
+        renders = group.get("render", channels)
         if rgba:
             yield group 
         for channel, render in zip(channels, renders):
@@ -1288,6 +1304,10 @@ def make_exhibit_config(opener, out_name, data):
         "Masks": list(make_mask_yaml(mask_data)),
         "Groups": list(make_groups(group_data)),
     }
+    pixels_per_micron = data["image"].get("pixels_per_micron", 0)
+    if pixels_per_micron != 0:
+        _config["PixelsPerMicron"] = pixels_per_micron
+
     return _config
 
 
@@ -1630,6 +1650,8 @@ def api_import():
                     saved = copy_saved_states(autosaved, saved)
 
             input_image_file = pathlib.Path(saved["in_file"])
+            if (data["missingpath"]):
+                input_image_file = pathlib.Path(data["missingpath"])
 
             if data["csvpath"]:
                 csv_file = pathlib.Path(data["csvpath"])
@@ -1646,14 +1668,21 @@ def api_import():
                 # This step could take up to a minute
                 response["masks"] = reload_all_mask_state_subsets(saved["masks"])
 
-            if "defaults" in saved:
-                response["defaults"] = saved["defaults"]
-
             response["waypoints"] = saved["waypoints"]
             response["groups"] = saved["groups"]
-            for group in saved["groups"]:
-                for chan in group["channels"]:
-                    chan_label[str(chan["id"])] = chan["label"]
+
+            if "defaults" in saved:
+                response["defaults"] = saved["defaults"]
+                for chan in saved["defaults"]:
+                    k = str(chan["id"])
+                    if k == chan["label"]: continue
+                    chan_label[k] = chan["label"]
+            else:
+                for group in saved["groups"]:
+                    for chan in group["channels"]:
+                        k = str(chan["id"])
+                        if k == chan["label"]: continue
+                        chan_label[k] = chan["label"]
         else:
             csv_file = pathlib.Path(data["csvpath"])
 
@@ -1684,7 +1713,8 @@ def api_import():
 
             (invalid, opener) = return_image_opener(str(input_image_file))
             if invalid or not opener:
-                return api_error(404, "Image file not found: " + str(input_image_file))
+                img_file = re.search("[^\\\/]*$", str(input_image_file))[0]
+                return api_error(404, "IMAGE ASK ERR: " + img_file)
 
             (num_channels, num_levels, width, height) = opener.get_shape()
 
@@ -1696,6 +1726,18 @@ def api_import():
         except Exception as e:
             print(e)
             return api_error(500, "Invalid tiff file")
+
+        # Copy defaults to channel label dictionary
+        chan_defaults = response.get("defaults", []);
+
+        pixels_per_micron = 0
+        try:
+            metadata = opener.read_metadata()
+            pixels = metadata.images[0].pixels
+            pixel_microns = pixels.physical_size_x_quantity.to('um').m
+            pixels_per_micron = 1/pixel_microns if pixel_microns > 0 else 0
+        except Exception:
+            return api_error(500, "Error in loading channel marker names")
 
         try:
             labels = list(yield_labels(opener, csv_file, chan_label, num_channels))
@@ -1723,9 +1765,12 @@ def api_import():
                 "marker_csv_file": str(csv_file),
                 "input_image_file": str(input_image_file),
                 "waypoints": response.get("waypoints", []),
-                "defaults": response.get("defaults"),
+                "defaults": response.get("defaults", []),
                 "sample_info": response.get(
-                    "sample_info", {"rotation": 0, "name": "", "text": ""}
+                    "sample_info", {
+                        "rotation": 0, "name": "", "text": "",
+                        "pixels_per_micron": pixels_per_micron
+                    }
                 ),
                 "masks": response.get("masks", []),
                 "groups": response.get("groups", []),
@@ -1863,9 +1908,16 @@ if __name__ == "__main__":
 
     sys.stdout.reconfigure(line_buffering=True)
 
+    num_workers = multiprocessing.cpu_count()
+    if hasattr(os, "sched_getaffinity"):
+        num_workers = len(os.sched_getaffinity(0))
+    num_workers = min(num_workers, multiprocessing.cpu_count() - 2)
+
+    plural = 's' if num_workers > 1 else ''
+    print(f'Using {num_workers} thread{plural}')
     if "--dev" in sys.argv:
         open_browser()
         app.run(debug=False, port=PORT)
     else:
         open_browser()
-        serve(app, listen="127.0.0.1:" + str(PORT), threads=10)
+        serve(app, listen="127.0.0.1:" + str(PORT), threads=num_workers, channel_timeout=15)
