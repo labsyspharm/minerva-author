@@ -323,7 +323,7 @@ class Opener:
             return self.rgba and rgba_type == self.rgba_type
 
     def validate_reader_level(self, level, tile_size):
-        (num_levels, width, height) = opener.get_shape()[1:]
+        (num_levels, width, height) = self.get_shape()[1:]
         peak_size = min(tile_size, max(width, height))
 
         # Ensure downsampling available for level at needed tile size
@@ -331,7 +331,7 @@ class Opener:
         valid_levels = [shape for shape in all_levels if max(shape) >= peak_size]
 
         # Insufficient levels for desired resolution
-        if len(valid_levels) <= level:
+        if len(valid_levels) <= level - 1:
             return None
         # Return original level
         return level
@@ -339,7 +339,7 @@ class Opener:
     def get_level_tiles(self, level, tile_size):
         if self.reader == "tifffile":
 
-            (width, height) = opener.get_shape()[2:]
+            (width, height) = self.get_shape()[2:]
             level_tile = tile_size*2**level
             return (
                 int(np.ceil(width / level_tile)),
@@ -387,7 +387,7 @@ class Opener:
                 if tile is not None:
                     return tile
             else:
-                logger.warning(f'No level {level} for {tilesize} exists in image pyramid.')
+                G["logger"].warning(f'No level {level} for {tilesize} exists in image pyramid.')
             
         # Invalid empty tile
         return np.zeros((tilesize, tilesize), dtype=self.default_dtype)
@@ -1742,7 +1742,7 @@ def api_import():
                 img_file = re.search("[^\\\/]*$", str(input_image_file))[0]
                 return api_error(404, "IMAGE ASK ERR: " + img_file)
 
-            (num_channels, num_levels, width, height) = opener.get_shape()
+            (num_channels, num_levels, width, height) = self.get_shape()
 
             response["maxLevel"] = num_levels - 1
             response["tilesize"] = opener.tilesize
