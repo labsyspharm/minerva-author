@@ -47,15 +47,9 @@ def json_to_html(exhibit):
     )
 
 
-def render(opener, saved, output_dir, rgba, logger):
+def render(opener, saved, output_dir, rgba, n_threads, logger):
 
-    n_threads = 1
     threads = []
-
-    try:
-        n_threads = len(os.sched_getaffinity(0))
-    except AttributeError:
-        n_threads = os.cpu_count()
 
     print(f'Using {n_threads} threads')
 
@@ -189,7 +183,7 @@ def render_one_tile(one_tile, output_dir, config_rows):
         img.save(output_file, quality=85)
 
 
-def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
+def main(ome_tiff, author_json, output_dir, root_url, vis_dir, n_threads, force=False):
     FORMATTER = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
@@ -260,7 +254,7 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
         config_rows = list(make_rows(saved["groups"], rgba))
         render_one_tile(one_tile, output_dir, config_rows)
     else:
-        render(opener, saved, output_dir, rgba, logger)
+        render(opener, saved, output_dir, rgba, n_threads, logger)
 
 
 if __name__ == "__main__":
@@ -285,6 +279,13 @@ if __name__ == "__main__":
         help="Output directory for exhibit and rendered JPEG pyramid",
     )
     parser.add_argument(
+        "--threads",
+        type=int,
+        default=1,
+        metavar="threads",
+        help="Number of threads to use rendering the JPEG pyramid",
+    )
+    parser.add_argument(
         "--url",
         metavar="url",
         default=None,
@@ -303,8 +304,9 @@ if __name__ == "__main__":
     ome_tiff = args.ome_tiff
     author_json = args.author_json
     output_dir = args.output_dir
+    n_threads = args.threads
     root_url = args.url
     vis_dir = args.vis
     force = args.force
 
-    main(ome_tiff, author_json, output_dir, root_url, vis_dir, force)
+    main(ome_tiff, author_json, output_dir, root_url, vis_dir, n_threads, force)
