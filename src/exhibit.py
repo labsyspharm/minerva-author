@@ -3,19 +3,14 @@ import json
 import logging
 import os
 import pathlib
-from distutils import file_util
 from distutils.errors import DistutilsFileError
 from json.decoder import JSONDecodeError
 
-import numpy as np
-from PIL import Image
 import tifffile as tiff
-from matplotlib import colors
 from tifffile.tifffile import TiffFileError
 
-from app import Opener, extract_story_json_stem, make_channels, make_groups, make_rows, make_stories
+from app import Opener, extract_story_json_stem, make_channels, make_groups, make_stories
 from storyexport import deduplicate_data, copy_vega_csv
-from render_jpg import render_color_tiles, composite_channel
 
 
 def json_to_html(exhibit):
@@ -32,7 +27,7 @@ def json_to_html(exhibit):
         '    <body>\n'
         '        <div id="minerva-browser" style="position: absolute; top: 0; left: 0; height: 100%; width: 100%;"></div>\n'
         '        <script defer src="https://use.fontawesome.com/releases/v5.2.0/js/all.js" integrity="sha384-4oV5EgaV02iISL2ban6c/RmotsABqE4yZxZLcYMAdG7FAPsyHYAPpywE9PJo+Khy" crossorigin="anonymous"></script>\n'
-        '        <script src="https://cdn.jsdelivr.net/npm/minerva-browser@3.19.2/build/bundle.js"></script>\n'
+        '        <script src="https://cdn.jsdelivr.net/npm/minerva-browser@3.15.0/build/bundle.js"></script>\n'
         '        <script>\n'
         '         window.viewer = MinervaStory.default.build_page({\n'
                      f'exhibit: {exhibit},\n'
@@ -44,11 +39,6 @@ def json_to_html(exhibit):
         '\n'
         '</html>'
     )
-
-
-def render(opener, saved, output_dir, rgba, logger):
-    config_rows = list(make_rows(saved["groups"], rgba))
-    render_color_tiles(opener, output_dir, 1024, config_rows, logger, None, False)
 
 
 def copy_vis_csv_files(waypoint_data, json_path, output_dir, vis_dir):
@@ -119,52 +109,6 @@ def make_exhibit_config(in_shape, root_url, saved, rgba):
     return exhibit
 
 
-def to_one_tile(one_tile, settings):
-
-    (height, width) = one_tile.shape[:2]
-    target = np.zeros((height, width, 3), np.float32)
-
-    for i, (marker, color, start, end) in enumerate(
-        zip(
-            settings["Channel Number"],
-            settings["Color"],
-            settings["Low"],
-            settings["High"],
-        )
-    ):
-        tile = one_tile[:, :, int(marker)]
-
-        if np.issubdtype(tile.dtype, np.unsignedinteger):
-            iinfo = np.iinfo(tile.dtype)
-            start *= iinfo.max
-            end *= iinfo.max
-
-        composite_channel(
-            target, tile, colors.to_rgb(color), float(start), float(end)
-        )
-
-    np.clip(target, 0, 1, out=target)
-    target_u8 = np.rint(target * 255).astype(np.uint8)
-    return Image.frombytes("RGB", target.T.shape[1:], target_u8.tobytes())
-
-
-def render_one_tile(one_tile, output_dir, config_rows):
-    print("    level {} ({} x {})".format(0, 0, 0))
-    filename = "{}_{}_{}.{}".format(0, 0, 0, "jpg")
-
-    output_path = pathlib.Path(output_dir)
-    if not output_path.exists():
-        output_path.mkdir(parents=True)
-
-    for settings in config_rows:
-        group_dir = settings["Group Path"]
-        if not (output_path / group_dir).exists():
-            (output_path / group_dir).mkdir(parents=True)
-        output_file = str(output_path / group_dir / filename)
-        img = to_one_tile(one_tile, settings)
-        img.save(output_file, quality=85)
-
-
 def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
     FORMATTER = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -231,12 +175,6 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, force=False):
     with open(output_dir / "index.html", "w") as wf:
         exhibit_string = json.dumps(exhibit_config)
         wf.write(json_to_html(exhibit_string))
-
-    if opener.reader is None:
-        config_rows = list(make_rows(saved["groups"], rgba))
-        render_one_tile(one_tile, output_dir, config_rows)
-    else:
-        render(opener, saved, output_dir, rgba, logger)
 
 
 if __name__ == "__main__":

@@ -52,6 +52,8 @@ def render_color_tiles(
     logger,
     progress_callback=None,
     allow_cache=True,
+    n_threads=1,
+    thread=0,
 ):
     EXT = "jpg"
 
@@ -96,12 +98,15 @@ def render_color_tiles(
             g: _check_duplicate(g, s, old_rows) for g, s in group_dirs.items()
         }
 
-    for level in range(num_levels):
+    for level in list(range(num_levels))[::-1]:
 
         (nx, ny) = opener.get_level_tiles(level, tile_size)
         print("    level {} ({} x {})".format(level, ny, nx))
 
-        for ty, tx in itertools.product(range(0, ny), range(0, nx)):
+        tile_list = list(itertools.product(range(0, ny), range(0, nx)))
+        print('thread', thread, 'of', n_threads, 'creating', len(tile_list[thread::n_threads]), 'of', len(tile_list), 'tiles for level', level)
+
+        for ty, tx in tile_list[thread::n_threads]:
 
             filename = "{}_{}_{}.{}".format(level, tx, ty, EXT)
 
@@ -109,11 +114,14 @@ def render_color_tiles(
 
                 group_dir = settings["Group Path"]
                 if not (output_path / group_dir).exists():
-                    (output_path / group_dir).mkdir(parents=True)
+                    try:
+                        (output_path / group_dir).mkdir(parents=True)
+                    except FileExistsError:
+                        pass
                 output_file = str(output_path / group_dir / filename)
 
                 # Only save file if change in config rows
-                if not (os.path.exists(output_file) and is_up_to_date[group_dir]):
+                if not os.path.exists(output_file) or not is_up_to_date[group_dir]:
                     try:
                         opener.save_tile(
                             output_file, settings, tile_size, level, tx, ty
