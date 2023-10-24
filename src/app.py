@@ -181,7 +181,7 @@ class ZarrWrapper:
     def __init__(self, group, dimensions):
 
         self.group = group
-        dim_alias = {"I": "C"}
+        dim_alias = {"I": "C", "S": "C"}
         self.dim_list = [dim_alias.get(d, d) for d in dimensions]
 
     def __getitem__(self, full_idx_list):
@@ -230,8 +230,6 @@ class Opener:
                 root[0] = self.group
                 self.group = root
             print("OME ", self.ome_version)
-            num_channels = self.get_shape()[0]
-            print(num_channels, 'channels')
 
             # Backup approach to dimension order
             metadata = self.read_metadata()
@@ -243,9 +241,12 @@ class Opener:
             # Direct approach to dimension order
             try:
                 dimensions = self.io.series[0].get_axes()
+                print(f'Dimensions: {dimensions}')
             except AttributeError:
                 print('Unable to detect dimension order from TIFF series.')
             self.wrapper = ZarrWrapper(self.group, dimensions)
+            num_channels = self.get_shape()[0]
+            print(num_channels, 'channels')
 
             tile_0 = self.get_tifffile_tile(num_channels, 0, 0, 0, 0, 1024)
             if tile_0 is not None:
@@ -324,11 +325,15 @@ class Opener:
 
     def get_shape(self):
         def parse_shape(shape):
-            if len(shape) >= 3:
-                (num_channels, shape_y, shape_x) = shape[-3:]
-            else:
-                (shape_y, shape_x) = shape
-                num_channels = 1
+            idx_map = {
+                key: i for (i, key) in enumerate(self.wrapper.dim_list)
+            }
+            shape_x = shape[idx_map.get('X',1)]
+            shape_y = shape[idx_map.get('Y',1)]
+            num_channels = shape[idx_map.get('C', 1)]
+
+            if len(shape) < 3:
+                return (1, shape_x, shape_y)
 
             return (num_channels, shape_x, shape_y)
 
