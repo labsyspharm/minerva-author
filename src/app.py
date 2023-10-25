@@ -532,8 +532,11 @@ class Opener:
 
     def save_tile(self, output_file, settings, tile_size, level, tx, ty):
         args = (output_file, settings, tile_size, level, tx, ty, 1)
-        img = self.return_tile(*args)
-        img.save(output_file, quality=85)
+        try:
+            img = self.return_tile(*args)
+            img.save(output_file, quality=85)
+        except ValueError:
+            print(f'Unable to save tile at level {level} ty {ty} tx {tx}')
 
 
 def api_error(status, message):
