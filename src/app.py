@@ -213,7 +213,6 @@ class Opener:
         self.warning = ""
         self.path = path
         self.reader = None
-        self.tilesize = 1024
         self.ext = check_ext(path)
         self.default_dtype = np.uint16
 
@@ -249,7 +248,7 @@ class Opener:
             num_channels = self.get_shape()[0]
             print(num_channels, 'channels')
 
-            tile_0 = self.get_tifffile_tile(num_channels, 0, 0, 0, 0, 1024)
+            tile_0 = self.get_tifffile_tile(num_channels, 0, 0, 0, 0, self.to_tsize())
             if tile_0 is not None:
                 self.default_dtype = tile_0.dtype
 
@@ -268,6 +267,9 @@ class Opener:
 
         else:
             self.reader = None
+
+    def to_tsize(self):
+        return 1024
 
     def to_dimension(self, label, default=0):
         dim_map = {
@@ -322,15 +324,15 @@ class Opener:
         else:
             return self.rgba and rgba_type == self.rgba_type
 
-    def get_level_tiles(self, level, tile_size):
+    def get_level_tiles(self, level, tsize):
         if self.reader == "tifffile":
 
             shape = self.group[level].shape
             shape_x = shape[self.to_dimension('X')]
             shape_y = shape[self.to_dimension('Y')]
             # Negative indexing to support shape len 3 or len 2
-            ny = int(np.ceil(shape_y / tile_size))
-            nx = int(np.ceil(shape_x / tile_size))
+            ny = int(np.ceil(shape_y / tsize))
+            nx = int(np.ceil(shape_x / tsize))
             return (nx, ny)
 
     def get_shape(self):
@@ -347,18 +349,22 @@ class Opener:
         if self.reader == "tifffile":
 
             (num_channels, shape_x, shape_y) = parse_shape(self.group[0].shape)
-            all_levels = [parse_shape(v.shape) for v in self.group.values()]
-            num_levels = len([shape for shape in all_levels if max(shape[1:]) > 512])
+            all_levels = [
+                parse_shape(v.shape) for v in self.group.values()
+            ]
+            num_levels = len([
+                shape for shape in all_levels if max(shape[1:]) > 512
+            ])
             num_levels = max(num_levels, 1)
             return (num_channels, num_levels, shape_x, shape_y)
 
-    def read_tiles(self, level, channel_number, tx, ty, tilesize):
-        ix = tx * tilesize
-        iy = ty * tilesize
+    def read_tiles(self, level, channel_number, tx, ty, tsize):
+        ix = tx * tsize
+        iy = ty * tsize
 
         try:
             tile = self.wrapper[
-                level, ix : ix + tilesize, iy : iy + tilesize, 0, channel_number, 0
+                level, ix : ix + tsize, iy : iy + tsize, 0, channel_number, 0
             ]
             return tile
         except Exception as e:
@@ -366,15 +372,15 @@ class Opener:
             return None
 
     def get_tifffile_tile(
-        self, num_channels, level, tx, ty, channel_number, tilesize=1024
+        self, num_channels, level, tx, ty, channel_number, tsize
     ):
 
         if self.reader == "tifffile":
 
-            tile = self.read_tiles(level, channel_number, tx, ty, tilesize)
+            tile = self.read_tiles(level, channel_number, tx, ty, tsize)
 
             if tile is None:
-                return np.zeros((tilesize, tilesize), dtype=self.default_dtype)
+                return np.zeros((tsize, tsize), dtype=self.default_dtype)
 
             return tile
 
@@ -383,9 +389,9 @@ class Opener:
         if self.reader == "tifffile":
 
             if self.is_rgba("3 channel"):
-                tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0, 1024)
-                tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1, 1024)
-                tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2, 1024)
+                tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0, self.to_tsize())
+                tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1, self.to_tsize())
+                tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2, self.to_tsize())
                 tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
                 tile[:, :, 0] = tile_0
                 tile[:, :, 1] = tile_1
@@ -393,7 +399,7 @@ class Opener:
                 _format = "RGB"
             else:
                 tile = self.get_tifffile_tile(
-                    num_channels, level, tx, ty, channel_number, 1024
+                    num_channels, level, tx, ty, channel_number, self.to_tsize()
                 )
                 _format = fmt if fmt else "I;16"
 
@@ -410,10 +416,10 @@ class Opener:
             return Image.fromarray(tile, _format)
 
     def generate_mask_tiles(
-        self, filename, mask_params, tile_size, level, tx, ty, should_skip_tiles={}
+        self, filename, mask_params, tsize, level, tx, ty, should_skip_tiles={}
     ):
         num_channels = self.get_shape()[0]
-        tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+        tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tsize)
 
         for image_params in mask_params["images"]:
 
@@ -446,7 +452,7 @@ class Opener:
                 img = Image.frombytes("RGBA", target.T.shape[1:], target.tobytes())
                 yield {"img": img, "output_file": output_file}
 
-    def save_mask_tiles(self, filename, mask_params, logger, tile_size, level, tx, ty):
+    def save_mask_tiles(self, filename, mask_params, logger, tsize, level, tx, ty):
 
         should_skip_tiles = {}
 
@@ -466,7 +472,7 @@ class Opener:
 
         if self.reader == "tifffile":
             mask_tiles = self.generate_mask_tiles(
-                filename, mask_params, tile_size, level, tx, ty, should_skip_tiles
+                filename, mask_params, tsize, level, tx, ty, should_skip_tiles
             )
 
             for mask_tile in mask_tiles:
@@ -481,13 +487,13 @@ class Opener:
                         with open(empty_file, "w"):
                             pass
 
-    def return_tile(self, output_file, settings, tile_size, level, tx, ty, gamma):
+    def return_tile(self, output_file, settings, tsize, level, tx, ty, gamma):
         if self.reader == "tifffile" and self.is_rgba("3 channel"):
 
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
-            tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1, tile_size)
-            tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2, tile_size)
+            tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tsize)
+            tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1, tsize)
+            tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2, tsize)
             tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
             tile[:, :, 0] = tile_0
             tile[:, :, 1] = tile_1
@@ -499,7 +505,7 @@ class Opener:
         elif self.reader == "tifffile" and self.is_rgba("1 channel"):
 
             num_channels = self.get_shape()[0]
-            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tile_size)
+            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tsize)
 
             g_tile = gamma_correct(tile, gamma)
             return Image.fromarray(g_tile, "RGB")
@@ -516,7 +522,7 @@ class Opener:
             ):
                 num_channels = self.get_shape()[0]
                 tile = self.get_tifffile_tile(
-                    num_channels, level, tx, ty, int(marker), tile_size
+                    num_channels, level, tx, ty, int(marker), tsize
                 )
 
                 if np.issubdtype(tile.dtype, np.unsignedinteger):
@@ -537,8 +543,8 @@ class Opener:
                 target = np.rint(target * 255).astype(np.uint8)
                 return Image.frombytes("RGB", target.T.shape[1:], target.tobytes())
 
-    def save_tile(self, output_file, settings, tile_size, level, tx, ty):
-        args = (output_file, settings, tile_size, level, tx, ty, 1)
+    def save_tile(self, output_file, settings, tsize, level, tx, ty):
+        args = (output_file, settings, tsize, level, tx, ty, 1)
         try:
             img = self.return_tile(*args)
             img.save(output_file, quality=85)
@@ -1262,7 +1268,9 @@ def make_mask_rows(out_dir, mask_data, session):
         if isinstance(mask_params["opener"], Opener):
             mask_opener = mask_params["opener"]
             num_levels = mask_opener.get_shape()[1]
-            mask_total = _calculate_total_tiles(mask_opener, 1024, num_levels)
+            mask_total = _calculate_total_tiles(
+                mask_opener, mask_opener.to_tsize(), num_levels
+            )
             mask_params['images'].append({
                 'settings': {
                     'channels': [{
@@ -1327,13 +1335,13 @@ def make_exhibit_config(opener, out_name, data):
 
 
 def render_image_tile(output_file, settings, **kwargs):
-    tile_size = kwargs.get("tile_size", 1024)
     level = kwargs.get("level", 0)
     gamma = kwargs.get("gamma", 1)
     tx = kwargs.get("tx", 0)
     ty = kwargs.get("ty", 0)
     opener = kwargs["opener"]
-    args = (output_file, settings, tile_size, level, tx, ty, gamma)
+    tsize = kwargs.get("tile_size", opener.to_tsize())
+    args = (output_file, settings, tsize, level, tx, ty, gamma)
     img = opener.return_tile(*args)
     img_io = io.BytesIO()
     img.save(img_io, "JPEG", quality=85)
@@ -1353,7 +1361,7 @@ def add_image_tiles_to_dict(cache_dict, config_rows, opener, out_dir_rel, gamma)
             continue
         # Cache tile parameters for every tile
         for level in range(num_levels):
-            (nx, ny) = opener.get_level_tiles(level, 1024)
+            (nx, ny) = opener.get_level_tiles(level, opener.to_tsize())
             for ty, tx in itertools.product(range(0, ny), range(0, nx)):
                 filename = "{}_{}_{}.{}".format(level, tx, ty, ext)
                 output_file = str((output_path / group_dir / filename).as_posix())
@@ -1362,8 +1370,8 @@ def add_image_tiles_to_dict(cache_dict, config_rows, opener, out_dir_rel, gamma)
                     "mimetype": f"image/{ext}",
                     "args": [output_file, settings],
                     "kwargs": {
+                        "tile_size": opener.to_tsize(),
                         "opener": opener,
-                        "tile_size": 1024,
                         "gamma": gamma,
                         "level": level,
                         "tx": tx,
@@ -1375,14 +1383,14 @@ def add_image_tiles_to_dict(cache_dict, config_rows, opener, out_dir_rel, gamma)
 
 
 def render_mask_tile(filename, mask_params, **kwargs):
-    tile_size = kwargs.get("tile_size", 1024)
     level = kwargs.get("level", 0)
     tx = kwargs.get("tx", 0)
     ty = kwargs.get("ty", 0)
     opener = mask_params["opener"]
+    tsize = kwargs.get("tile_size", opener.to_tsize())
     # We except the mask params to only contain one image
     mask_tiles = opener.generate_mask_tiles(
-        filename, mask_params, tile_size, level, tx, ty
+        filename, mask_params, tsize, level, tx, ty
     )
     img = next(mask_tiles, {}).get("img", None)
     img_io = io.BytesIO()
@@ -1415,7 +1423,7 @@ def add_mask_tiles_to_dict(cache_dict, mask_config_rows):
             continue
         # Cache tile parameters for every tile
         for level in range(num_levels):
-            (nx, ny) = opener.get_level_tiles(level, 1024)
+            (nx, ny) = opener.get_level_tiles(level, opener.to_tsize())
             for ty, tx in itertools.product(range(0, ny), range(0, nx)):
                 filename = "{}_{}_{}.{}".format(level, tx, ty, ext)
                 output_file = str((output_path / filename).as_posix())
@@ -1423,7 +1431,11 @@ def add_mask_tiles_to_dict(cache_dict, mask_config_rows):
                     "function": render_mask_tile,
                     "mimetype": f"image/{ext}",
                     "args": [filename, mask_params],
-                    "kwargs": {"tile_size": 1024, "level": level, "tx": tx, "ty": ty},
+                    "kwargs": {
+                        "tile_size": opener.to_tsize(),
+                        "tx": tx, "ty": ty,
+                        "level": level
+                    },
                 }
 
     return cache_dict
@@ -1541,7 +1553,7 @@ def api_render(session):
         render_color_tiles(
             opener,
             out_dir,
-            1024,
+            opener.to_tsize(),
             config_rows,
             G["logger"],
             progress_callback=create_progress_callback(0, session),
@@ -1549,7 +1561,9 @@ def api_render(session):
 
         # Render all uint32 segmentation masks
         for mask_params in mask_config_rows:
-            render_u32_tiles(mask_params, 1024, G["logger"])
+            render_u32_tiles(
+                mask_params, opener.to_tsize(), G["logger"]
+            )
 
         return "OK"
 
@@ -1733,8 +1747,8 @@ def api_import():
 
             (num_channels, num_levels, width, height) = opener.get_shape()
 
+            response["tilesize"] = opener.to_tsize()
             response["maxLevel"] = num_levels - 1
-            response["tilesize"] = opener.tilesize
             response["height"] = height
             response["width"] = width
 
@@ -1753,7 +1767,6 @@ def api_import():
             pixels_per_micron = 1/pixel_microns if pixel_microns > 0 else 0
         except Exception:
             return api_error(500, "Error in loading channel marker names")
-
         try:
             labels = list(yield_labels(opener, csv_file, chan_label, num_channels))
         except Exception:
@@ -1789,10 +1802,10 @@ def api_import():
                 ),
                 "masks": response.get("masks", []),
                 "groups": response.get("groups", []),
-                "tilesize": response.get("tilesize", 1024),
                 "maxLevel": response.get("maxLevel", 1),
-                "height": response.get("height", 1024),
-                "width": response.get("width", 1024),
+                "width": response.get("width", opener.to_tsize()),
+                "height": response.get("height", opener.to_tsize()),
+                "tilesize": response.get("tilesize", opener.to_tsize()),
                 "warning": opener.warning if opener else "",
                 "rgba": opener.is_rgba() if opener else False,
             }

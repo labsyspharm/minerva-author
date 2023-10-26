@@ -56,7 +56,7 @@ def render(opener, saved, output_dir, rgba, n_threads, logger):
     config_rows = list(make_rows(saved["groups"], rgba))
 
     for thread in range(n_threads):
-        th_args = (opener, output_dir, 1024, config_rows, logger, None, False)
+        th_args = (opener, output_dir, opener.to_tsize(), config_rows, logger, None, False)
         th_kwargs = {'thread': thread,'n_threads': n_threads}
         th = threading.Thread(target=render_color_tiles, args=th_args, kwargs=th_kwargs)
         threads.append(th)
