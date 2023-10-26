@@ -241,9 +241,10 @@ class Opener:
             # Direct approach to dimension order
             try:
                 dimensions = self.io.series[0].get_axes()
-                print(f'Dimensions: {dimensions}')
             except AttributeError:
                 print('Unable to detect dimension order from TIFF series.')
+
+            print(f'Dimensions: {dimensions}')
             self.wrapper = ZarrWrapper(self.group, dimensions)
             num_channels = self.get_shape()[0]
             print(num_channels, 'channels')
@@ -267,6 +268,12 @@ class Opener:
 
         else:
             self.reader = None
+
+    def to_dimension(self, label, default=0):
+        dim_map = {
+            key: i for (i, key) in enumerate(self.wrapper.dim_list)
+        }
+        return dim_map.get(label, default)
 
     def _get_ome_version(self):
         try:
@@ -318,19 +325,19 @@ class Opener:
     def get_level_tiles(self, level, tile_size):
         if self.reader == "tifffile":
 
+            shape = self.group[level].shape
+            shape_x = shape[self.to_dimension('X')]
+            shape_y = shape[self.to_dimension('Y')]
             # Negative indexing to support shape len 3 or len 2
-            ny = int(np.ceil(self.group[level].shape[-2] / tile_size))
-            nx = int(np.ceil(self.group[level].shape[-1] / tile_size))
+            ny = int(np.ceil(shape_y / tile_size))
+            nx = int(np.ceil(shape_x / tile_size))
             return (nx, ny)
 
     def get_shape(self):
         def parse_shape(shape):
-            idx_map = {
-                key: i for (i, key) in enumerate(self.wrapper.dim_list)
-            }
-            shape_x = shape[idx_map.get('X',1)]
-            shape_y = shape[idx_map.get('Y',1)]
-            num_channels = shape[idx_map.get('C', 1)]
+            shape_x = shape[self.to_dimension('X')]
+            shape_y = shape[self.to_dimension('Y')]
+            num_channels = shape[self.to_dimension('C')]
 
             if len(shape) < 3:
                 return (1, shape_x, shape_y)
