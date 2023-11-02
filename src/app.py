@@ -52,6 +52,7 @@ from pyramid_assemble import main as make_ome
 from render_jpg import _calculate_total_tiles, composite_channel, render_color_tiles
 from render_png import colorize_integer, colorize_mask, render_tile, render_u32_tiles
 from render_png import MissingTilePNG
+from story import main as auto_minerva
 from storyexport import (
     create_story_base,
     lookup_vis_data_type,
@@ -299,7 +300,7 @@ class Opener:
             num_channels = self.get_shape()[0]
             print(num_channels, 'channels')
 
-            tile_0 = self.get_tifffile_tile(num_channels, 0, 0, 0, 0, self.to_tsize())
+            tile_0 = self.read_tiles(0, 0, 0, 0, self.to_tsize())
             self.default_dtype = tile_0.dtype
 
             if num_channels == 3 and tile_0.dtype == "uint8":
@@ -418,30 +419,21 @@ class Opener:
             level, ix : ix + tsize, iy : iy + tsize, 0, channel_number, 0
         ]
 
-    def get_tifffile_tile(
-        self, num_channels, level, tx, ty, channel_number, tsize
-    ):
-
-        if self.reader == "tifffile":
-            return self.read_tiles(level, channel_number, tx, ty, tsize)
-
     def get_tile(self, num_channels, level, tx, ty, channel_number, fmt=None):
 
         if self.reader == "tifffile":
 
             if self.is_rgba("3 channel"):
-                tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0, self.to_tsize())
-                tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1, self.to_tsize())
-                tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2, self.to_tsize())
+                tile_0 = self.read_tiles(level, 0, tx, ty, self.to_tsize())
+                tile_1 = self.read_tiles(level, 1, tx, ty, self.to_tsize())
+                tile_2 = self.read_tiles(level, 2, tx, ty, self.to_tsize())
                 tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
                 tile[:, :, 0] = tile_0
                 tile[:, :, 1] = tile_1
                 tile[:, :, 2] = tile_2
                 _format = "RGB"
             else:
-                tile = self.get_tifffile_tile(
-                    num_channels, level, tx, ty, channel_number, self.to_tsize()
-                )
+                tile = self.read_tiles(level, channel_number, tx, ty, self.to_tsize())
                 _format = fmt if fmt else "I;16"
 
                 if _format == "RGBA" and tile.dtype != np.uint32:
@@ -461,7 +453,7 @@ class Opener:
     ):
         num_channels = self.get_shape()[0]
 
-        tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tsize)
+        tile = self.read_tiles(level, 0, tx, ty, tsize)
 
         for image_params in mask_params["images"]:
 
@@ -533,9 +525,9 @@ class Opener:
         if self.reader == "tifffile" and self.is_rgba("3 channel"):
 
             num_channels = self.get_shape()[0]
-            tile_0 = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tsize)
-            tile_1 = self.get_tifffile_tile(num_channels, level, tx, ty, 1, tsize)
-            tile_2 = self.get_tifffile_tile(num_channels, level, tx, ty, 2, tsize)
+            tile_0 = self.read_tiles(level, 0, tx, ty, tsize)
+            tile_1 = self.read_tiles(level, 1, tx, ty, tsize)
+            tile_2 = self.read_tiles(level, 2, tx, ty, tsize)
             tile = np.zeros((tile_0.shape[0], tile_0.shape[1], 3), dtype=np.uint8)
             tile[:, :, 0] = tile_0
             tile[:, :, 1] = tile_1
@@ -547,7 +539,7 @@ class Opener:
         elif self.reader == "tifffile" and self.is_rgba("1 channel"):
 
             num_channels = self.get_shape()[0]
-            tile = self.get_tifffile_tile(num_channels, level, tx, ty, 0, tsize)
+            tile = self.read_tiles(level, 0, tx, ty, tsize)
 
             g_tile = gamma_correct(tile, gamma)
             return Image.fromarray(g_tile, "RGB")
@@ -563,9 +555,7 @@ class Opener:
                 )
             ):
                 num_channels = self.get_shape()[0]
-                tile = self.get_tifffile_tile(
-                    num_channels, level, tx, ty, int(marker), tsize
-                )
+                tile = self.read_tiles(level, int(marker), tx, ty, tsize)
 
                 if np.issubdtype(tile.dtype, np.unsignedinteger):
                     iinfo = np.iinfo(tile.dtype)
@@ -1842,6 +1832,12 @@ def api_import():
             G["logger"].error(error_message)
             return api_error(404, error_message)
 
+        default_groups = []
+        if not opener.is_rgba() and 'groups' not in response:
+            default_groups = auto_minerva(opener, labels)['groups']
+        else:
+            default_groups = response['groups']
+
         return jsonify(
             {
                 "loaded": True,
@@ -1861,7 +1857,7 @@ def api_import():
                     }
                 ),
                 "masks": response.get("masks", []),
-                "groups": response.get("groups", []),
+                "groups": response.get("groups", default_groups),
                 "maxLevel": response.get("maxLevel", 1),
                 "width": response.get("width", opener.to_tsize()),
                 "height": response.get("height", opener.to_tsize()),
