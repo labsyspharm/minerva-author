@@ -10,20 +10,31 @@ import numpy as np
 
 tiff_lock = Lock()
 
+class MissingTilePNG(Exception):
+    pass
 
 def render_tile(opener, level, tx, ty, channel_number, fmt=None):
     with tiff_lock:
 
         (num_channels, num_levels, width, height) = opener.get_shape()
-        tilesize = opener.tilesize
-
+        sanity_checks = [
+            ty <= height // opener.to_tsize(),
+            tx <= width // opener.to_tsize(),
+            channel_number < num_channels,
+            level < num_levels
+        ]
         img_io = None
-        if level < num_levels and channel_number < num_channels:
-            if tx <= width // tilesize and ty <= height // tilesize:
-                img = opener.get_tile(num_channels, level, tx, ty, channel_number, fmt)
-                img_io = io.BytesIO()
-                img.save(img_io, "PNG", compress_level=1)
-                img_io.seek(0)
+        # Sanity checks
+        if all(sanity_checks):
+            img = opener.get_tile(num_channels, level, tx, ty, channel_number, fmt)
+            img_io = io.BytesIO()
+            img.save(img_io, "PNG", compress_level=1)
+            img_io.seek(0)
+        else:
+            print('sanity_checks', sanity_checks, num_levels)
+
+    if img_io is None:
+        raise MissingTilePNG(f'No tile at level {level} ty {ty} tx {tx}')
 
     return img_io
 
@@ -77,7 +88,7 @@ def colorize_mask(target, image, opacity):
     return target
 
 
-def render_u32_tiles(mask_params, tile_size, logger):
+def render_u32_tiles(mask_params, tsize, logger):
     EXT = "png"
 
     opener = mask_params["opener"]
@@ -117,7 +128,7 @@ def render_u32_tiles(mask_params, tile_size, logger):
 
     for level in range(num_levels):
 
-        (nx, ny) = opener.get_level_tiles(level, tile_size)
+        (nx, ny) = opener.get_level_tiles(level, tsize)
         print("    level {} ({} x {})".format(level, ny, nx))
 
         for ty, tx in itertools.product(range(0, ny), range(0, nx)):
@@ -126,7 +137,7 @@ def render_u32_tiles(mask_params, tile_size, logger):
 
             try:
                 opener.save_mask_tiles(
-                    filename, mask_params, logger, tile_size, level, tx, ty
+                    filename, mask_params, logger, tsize, level, tx, ty
                 )
             except AttributeError as e:
                 logger.error(f"{level} ty {ty} tx {tx}: {e}")
