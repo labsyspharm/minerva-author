@@ -10,6 +10,8 @@ import numpy as np
 
 tiff_lock = Lock()
 
+class MissingTilePNG(Exception):
+    pass
 
 def render_tile(opener, level, tx, ty, channel_number, fmt=None):
     with tiff_lock:
@@ -28,6 +30,11 @@ def render_tile(opener, level, tx, ty, channel_number, fmt=None):
             img_io = io.BytesIO()
             img.save(img_io, "PNG", compress_level=1)
             img_io.seek(0)
+        else:
+            print('sanity_checks', sanity_checks, num_levels)
+
+    if img_io is None:
+        raise MissingTilePNG(f'No tile at level {level} ty {ty} tx {tx}')
 
     return img_io
 
