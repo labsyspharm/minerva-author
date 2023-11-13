@@ -1382,6 +1382,10 @@ def make_exhibit_config(opener, out_name, data):
     pixels_per_micron = data["image"].get("pixels_per_micron", 0)
     if pixels_per_micron != 0:
         _config["PixelsPerMicron"] = pixels_per_micron
+    if 'first_group' in data["image"]:
+        _config["FirstGroup"] = data["image"]["first_group"]
+    if 'default_group' in data["image"]:
+        _config["DefaultGroup"] = data["image"]["default_group"]
 
     return _config
 
