@@ -14,6 +14,8 @@ import tifffile as tiff
 from matplotlib import colors
 from tifffile.tifffile import TiffFileError
 
+from thumbnail import find_group_tiles
+from thumbnail import merge_tiles_and_save_image
 from app import Opener, extract_story_json_stem, make_channels, make_groups, make_rows, make_stories
 from storyexport import deduplicate_data, copy_vega_csv
 from render_jpg import render_color_tiles, composite_channel
@@ -255,6 +257,13 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, n_threads, force=
         render_one_tile(one_tile, output_dir, config_rows)
     else:
         render(opener, saved, output_dir, rgba, n_threads, logger)
+
+        # Render thumbnail
+        groups = exhibit_config["Groups"]
+        if len(groups) > 0:
+            group = exhibit_config.get("FirstGroup", groups[0]["Name"])
+            tiles = find_group_tiles(output_dir, output_dir / "exhibit.json", group)
+            merge_tiles_and_save_image(output_dir, tiles)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,8 @@ from create_vega import (
     create_barchart,
     create_matrix,
 )
+from thumbnail import find_group_tiles
+from thumbnail import merge_tiles_and_save_image
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from distutils import file_util
@@ -1608,6 +1610,12 @@ def api_render(session):
             G["logger"],
             progress_callback=create_progress_callback(0, session),
         )
+        # Render thumbnail
+        groups = exhibit_config["Groups"]
+        if len(groups) > 0:
+            group = exhibit_config.get("FirstGroup", groups[0]["Name"])
+            tiles = find_group_tiles(out_dir, out_yaml, group)
+            merge_tiles_and_save_image(out_dir, tiles)
 
         # Render all uint32 segmentation masks
         for mask_params in mask_config_rows:
