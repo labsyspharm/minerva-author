@@ -38,4 +38,4 @@ if __name__ == "__main__":
         with open(args.output_file, 'w') as wf:
             json.dump(results, wf)
     except (FileNotFoundError, TiffFileError) as e:
-        print(f"Invalid ome-tiff file: cannot parse {ome_tiff}", file=sys.stderr)
+        print(f"Invalid ome-tiff file: cannot parse {args.ome_tiff}", file=sys.stderr)
