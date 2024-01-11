@@ -13,6 +13,7 @@ dependencies:
   - matplotlib=3.6.1
   - tifffile=2023.7.18
   - scikit-image=0.19.3
+  - Werkzeug=2.3.8
   - xsdata=23.5
   - pandas=1.5.0
   - zarr=2.13.3
