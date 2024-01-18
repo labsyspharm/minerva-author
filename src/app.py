@@ -238,7 +238,10 @@ class ZarrWrapper:
             ])
             for (low, high) in zip(low_mag, high_mag)
         ]
-        return int(np.round(np.mean(ratios)))
+        try:
+            return int(np.round(np.mean(ratios)))
+        except ValueError:
+            return 2
 
     def from_group_level(self, group_level):
 
@@ -1810,7 +1813,7 @@ def api_import():
             response["width"] = width
 
         except Exception as e:
-            print(e)
+            logging.exception(e)
             return api_error(500, "Invalid tiff file")
 
         # Copy defaults to channel label dictionary
