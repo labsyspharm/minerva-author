@@ -89,6 +89,13 @@ def custom_log_warning(msg, *args, **kwargs):
 
 tifffile.tifffile.log_warning = custom_log_warning
 
+
+def to_num_workers():
+    num_workers = multiprocessing.cpu_count()
+    if hasattr(os, "sched_getaffinity"):
+        num_workers = len(os.sched_getaffinity(0))
+    return min(num_workers, multiprocessing.cpu_count() - 2)
+
 def gamma_correct_float(float_tile, gamma):
     return np.power(float_tile, gamma)
 
@@ -674,9 +681,7 @@ def convert_mask(path):
     if os.path.exists(tmp_path):
         os.remove(tmp_path)
 
-    num_workers = multiprocessing.cpu_count()
-    if hasattr(os, "sched_getaffinity"):
-        num_workers = len(os.sched_getaffinity(0))
+    num_workers = to_num_workers()
 
     make_ome([pathlib.Path(path)], pathlib.Path(tmp_path), True, 1, num_workers)
     os.rename(tmp_path, ome_path)
@@ -2004,13 +2009,9 @@ if __name__ == "__main__":
 
     sys.stdout.reconfigure(line_buffering=True)
 
-    num_workers = multiprocessing.cpu_count()
-    if hasattr(os, "sched_getaffinity"):
-        num_workers = len(os.sched_getaffinity(0))
-    num_workers = min(num_workers, multiprocessing.cpu_count() - 2)
-
+    num_workers = to_num_workers()
     plural = 's' if num_workers > 1 else ''
-    print(f'Using {num_workers} thread{plural}')
+    print(f'Running server with {num_workers} thread{plural}')
     if "--dev" in sys.argv:
         open_browser()
         app.run(debug=False, port=PORT)

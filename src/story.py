@@ -2,6 +2,7 @@ import csv
 import json
 import numpy as np
 import ome_types
+import threading
 import sklearn.mixture
 import sys
 import tifffile
@@ -39,8 +40,12 @@ def auto_threshold(img):
 
     return vmin, vmax
 
+def to_channel_range(idx_start, n_channels):
+    idx_end = min(idx_start + 4, n_channels)
+    return list(range(idx_start, idx_end))
 
-def main(opener, channel_names):
+
+def main(opener, channel_names, n_workers=1):
 
     try:
         metadata = opener.read_metadata()
@@ -63,36 +68,76 @@ def main(opener, channel_names):
     }
 
     dtype = opener.default_dtype
-    num_levels = opener.get_shape()[1]
-    num_channels = opener.get_shape()[0]
+    n_levels = opener.get_shape()[1]
+    n_channels = opener.get_shape()[0]
     color_cycle = 'ffffff', 'ff0000', '00ff00', '0000ff'
     scale = np.iinfo(dtype).max if np.issubdtype(dtype, np.integer) else 1
-    level = num_levels - 1
+    level = n_levels - 1
 
-    for gi, idx_start in enumerate(range(0, num_channels, 4), 1):
-        idx_end = min(idx_start + 4, num_channels)
-        channel_numbers = range(idx_start, idx_end)
-        channel_defs = []
-        for ci, color in zip(channel_numbers, color_cycle):
-            print(
-                f"analyzing channel {ci + 1}/{num_channels}", file=sys.stderr
-            )
-            img = opener.wrapper[level, :, :, 0, ci, 0]
-            if img.min() < 0:
-                print("  WARNING: Ignoring negative pixel values", file=sys.stderr)
+    group_size = 4
+    output_groups = dict()
+
+    def record_thresholds(*args_list):
+        for recorder, thresholder in args_list:
+            recorder(thresholder())
+
+    def to_recorder(gi, ci):
+        def recorder(channel):
+            group = output_groups.get(gi, {})
+            group[ci] = channel
+            output_groups[gi] = group
+        return recorder
+
+    def to_thresholder(ci, color):
+        img = opener.wrapper[level, :, :, 0, ci, 0]
+        if img.min() < 0:
+            print("  WARNING: Ignoring negative pixel values", file=sys.stderr)
+        def thresholder():
             vmin, vmax = auto_threshold(img)
-            vmin /= scale
-            vmax /= scale
-            channel_defs.append({
+            return {
                 "color": color,
                 "id": ci,
                 "label": channel_names[ci],
-                "min": vmin,
-                "max": vmax,
-            })
+                "min": vmin / scale,
+                "max": vmax / scale,
+            }
+        return thresholder
+
+    group_indices = list(range(0, n_channels, group_size))
+    group_args = [
+        (to_recorder(gi, ci), to_thresholder(ci, color)) for gi in group_indices
+        for ci, color in zip(to_channel_range(gi, n_channels), color_cycle)
+    ]
+    multi_group_args = [
+        group_args[i::n_workers]
+        for i in range(len(group_args) // n_workers)
+    ]
+    n_groups = len(group_indices)
+    print(f'''Auto-Grouping:
+    {n_groups} groups of {group_size} channels
+    over {n_workers} threads
+    ''')
+
+    threads = [
+        threading.Thread(target=record_thresholds, args=args)
+        for args in multi_group_args
+    ]
+    for th in threads:
+        th.start()
+
+    for th in threads:
+        th.join()
+   
+    auto_groups = [
+        output_groups[gi] for gi in group_indices 
+    ]
+
+    for gi, val in enumerate(auto_groups):
         story["groups"].append({
-            "label": f"Group {gi}",
-            "channels": channel_defs,
+            "label": f"Group {gi+1}",
+            "channels": [
+                v for _,v in sorted(val.items())
+            ]
         })
 
     return story
