@@ -108,11 +108,12 @@ def main(opener, channel_names, n_workers=1):
         (to_recorder(gi, ci), to_thresholder(ci, color)) for gi in group_indices
         for ci, color in zip(to_channel_range(gi, n_channels), color_cycle)
     ]
+    n_groups = len(group_indices)
+    n_workers = min(n_workers, n_groups)
     multi_group_args = [
         group_args[i::n_workers]
         for i in range(len(group_args) // n_workers)
     ]
-    n_groups = len(group_indices)
     print(f'''Auto-Grouping:
     {n_groups} groups of {group_size} channels
     over {n_workers} threads
@@ -128,6 +129,7 @@ def main(opener, channel_names, n_workers=1):
     for th in threads:
         th.join()
    
+    print(output_groups)
     auto_groups = [
         output_groups[gi] for gi in group_indices 
     ]
