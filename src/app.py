@@ -1389,6 +1389,8 @@ def make_exhibit_config(opener, out_name, data):
         _config["PixelsPerMicron"] = pixels_per_micron
     if 'first_group' in data["image"]:
         _config["FirstGroup"] = data["image"]["first_group"]
+    if 'first_waypoint' in data["image"]:
+        _config["FirstGroup"] = data["image"]["first_waypoint"]
     if 'default_group' in data["image"]:
         _config["DefaultGroup"] = data["image"]["default_group"]
 
@@ -1850,10 +1852,14 @@ def api_import():
             return api_error(404, error_message)
 
         default_groups = []
-        if not opener.is_rgba() and 'groups' not in response:
-            default_groups = auto_minerva(opener, labels)['groups']
+        has_auto_groups = (
+            not opener.is_rgba() and 'groups' not in response
+        )
+        if has_auto_groups:
+            num_workers = to_num_workers()
+            default_groups = auto_minerva(opener, labels, num_workers)['groups']
         else:
-            default_groups = response['groups']
+            default_groups = response.get('groups', [])
 
         return jsonify(
             {
@@ -1864,6 +1870,7 @@ def api_import():
                 "session": uuid.uuid4().hex,
                 "output_save_file": str(out_dat),
                 "marker_csv_file": str(csv_file),
+                "has_auto_groups": has_auto_groups,
                 "input_image_file": str(input_image_file),
                 "waypoints": response.get("waypoints", []),
                 "defaults": response.get("defaults", []),
