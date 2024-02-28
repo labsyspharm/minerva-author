@@ -40,9 +40,51 @@ def auto_threshold(img):
 
     return vmin, vmax
 
-def to_channel_range(idx_start, n_channels):
-    idx_end = min(idx_start + 4, n_channels)
-    return list(range(idx_start, idx_end))
+def to_heuristic(channel_names, step_size):
+    names = channel_names[::step_size]
+    # Preferences from most to least important
+    # Few trigrams, few bigrams, low modulo
+    return (
+        len(set([ name[:3] for name in names ]))/len(names),
+        len(set([ name[:2] for name in names ]))/len(names),
+        len(channel_names) % step_size
+    )
+
+def group_channels(n_channels, channel_names):
+    size_options = [3, 4, 5, 6]
+    # Group with fewest initial ngrams
+    size_stats = sorted([
+        (*to_heuristic(channel_names, size), size)
+        for size in size_options 
+    ])
+    group_size = size_stats[0][-1]
+    # Groups must be at least half size
+    min_size = 2 + group_size // 2
+    group_starts = list(range(0, n_channels, group_size))
+    group_iter = zip(group_starts, group_starts[1:]+[None])
+    channel_groups = []
+    for gi, pair in enumerate(group_iter):
+        channel_range = list(range(n_channels)[slice(*pair)])
+        if gi > 0 and len(channel_range) < min_size:
+            last_range = channel_groups[-1][-1]
+            last_range += channel_range
+            continue
+        channel_groups.append([gi, channel_range])
+    return dict(channel_groups)
+
+
+def color_cycle(iterable):
+    colors = (
+        'ffffff', 'ff0000', '00ff00', '0000ff',
+        'ff00ff', 'ffff00', '00ffff'
+    )
+    def cycle():
+        i = 0
+        while True:
+            yield colors[i % len(colors)]
+            i += 1
+    # Pair each iterable entry with a color
+    return zip(iterable, cycle())
 
 
 def main(opener, channel_names, n_workers=1):
@@ -70,11 +112,9 @@ def main(opener, channel_names, n_workers=1):
     dtype = opener.default_dtype
     n_levels = opener.get_shape()[1]
     n_channels = opener.get_shape()[0]
-    color_cycle = 'ffffff', 'ff0000', '00ff00', '0000ff'
     scale = np.iinfo(dtype).max if np.issubdtype(dtype, np.integer) else 1
     level = n_levels - 1
 
-    group_size = 4
     output_groups = dict()
 
     def record_thresholds(*args_list):
@@ -103,19 +143,26 @@ def main(opener, channel_names, n_workers=1):
             }
         return thresholder
 
-    group_indices = list(range(0, n_channels, group_size))
+    channel_groups = group_channels(n_channels, channel_names) 
     group_args = [
-        (to_recorder(gi, ci), to_thresholder(ci, color)) for gi in group_indices
-        for ci, color in zip(to_channel_range(gi, n_channels), color_cycle)
+        (to_recorder(gi, ci), to_thresholder(ci, color))
+        for gi, channel_range in channel_groups.items()
+        for ci, color in color_cycle(channel_range)
     ]
-    n_groups = len(group_indices)
+    n_groups = len(channel_groups)
     n_workers = min(n_workers, n_groups)
     multi_group_args = [
         group_args[i::n_workers]
         for i in range(len(group_args) // n_workers)
     ]
+    group_sizes = set(
+        len(channel_range) for channel_range in channel_groups.values()
+    )
+    group_range = '-'.join([
+        str(size) for size in sorted(group_sizes)
+    ])
     print(f'''Auto-Grouping:
-    {n_groups} groups of {group_size} channels
+    {n_groups} groups of {group_range} channels
     over {n_workers} threads
     ''')
 
@@ -129,9 +176,9 @@ def main(opener, channel_names, n_workers=1):
     for th in threads:
         th.join()
    
-    print(output_groups)
     auto_groups = [
-        output_groups[gi] for gi in group_indices 
+        output_groups[gi] for gi in
+        sorted(channel_groups.keys())
     ]
 
     for gi, val in enumerate(auto_groups):
