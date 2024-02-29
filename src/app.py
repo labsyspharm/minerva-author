@@ -1388,10 +1388,10 @@ def make_exhibit_config(opener, out_name, data):
     pixels_per_micron = data["image"].get("pixels_per_micron", 0)
     if pixels_per_micron != 0:
         _config["PixelsPerMicron"] = pixels_per_micron
-    if 'first_group' in data["image"]:
-        _config["FirstGroup"] = data["image"]["first_group"]
-    if 'first_waypoint' in data["image"]:
-        _config["FirstGroup"] = data["image"]["first_waypoint"]
+    if 'first_group' in data:
+        _config["FirstGroup"] = data["first_group"]
+    if 'first_viewport' in data:
+        _config["FirstViewport"] = data["first_viewport"]
     if 'default_group' in data["image"]:
         _config["DefaultGroup"] = data["image"]["default_group"]
 
@@ -1762,6 +1762,10 @@ def api_import():
                 response["sample_info"] = saved["sample_info"]
                 if "rotation" not in response["sample_info"]:
                     response["sample_info"]["rotation"] = 0
+            if "first_group" in saved:
+                response["first_group"] = saved["first_group"]
+            if "first_viewport" in saved:
+                response["first_viewport"] = saved["first_viewport"]
 
             if "masks" in saved:
                 # This step could take up to a minute
@@ -1880,6 +1884,9 @@ def api_import():
                 "marker_csv_file": str(csv_file),
                 "has_auto_groups": has_auto_groups,
                 "input_image_file": str(input_image_file),
+                "first_group": response.get("first_group", None),
+                "first_viewport": response.get("first_viewport", None),
+                "defaults": response.get("defaults", []),
                 "waypoints": response.get("waypoints", []),
                 "defaults": response.get("defaults", []),
                 "sample_info": response.get(
