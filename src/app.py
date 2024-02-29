@@ -8,6 +8,7 @@ import string
 import atexit
 import csv
 import io
+import traceback
 import itertools
 import json
 import logging
@@ -1829,16 +1830,23 @@ def api_import():
         chan_defaults = response.get("defaults", []);
 
         pixels_per_micron = 0
+        user_facing_error_text = (
+            '\n\nPlease submit a GitHub issue with the following info:\n'
+        )
         try:
             metadata = opener.read_metadata()
             pixels = metadata.images[0].pixels
             pixel_microns = pixels.physical_size_x_quantity.to('um').m
             pixels_per_micron = 1/pixel_microns if pixel_microns > 0 else 0
-        except Exception:
+        except Exception as e:
+            print(user_facing_error_text)
+            print(traceback.format_exc())
             return api_error(500, "Error in loading channel marker names")
         try:
             labels = list(yield_labels(opener, csv_file, chan_label, num_channels))
-        except Exception:
+        except Exception as e:
+            print(user_facing_error_text)
+            print(traceback.format_exc())
             return api_error(500, "Error in loading channel marker names")
 
         fh = logging.FileHandler(str(out_log))
