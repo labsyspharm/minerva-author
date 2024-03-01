@@ -86,4 +86,11 @@ jobs:
           files: |
             minerva_author_windows.zip
             minerva_author_macos.zip
-
+      - name: Upload artifacts for pull requests
+        if: ${{ github.event_name == 'pull_request' }
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-pr${{ github.event.pull_request.number }}-${{ matrix.os }}
+          path: minerva_author_*.zip
+          compression-level: 0
+          if-no-files-found: error
