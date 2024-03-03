@@ -1,8 +1,9 @@
+import concurrent.futures
 import csv
+import itertools
 import json
 import numpy as np
 import ome_types
-import threading
 import sklearn.mixture
 import sys
 import tifffile
@@ -78,13 +79,8 @@ def color_cycle(iterable):
         'ffffff', 'ff0000', '00ff00', '0000ff',
         'ff00ff', 'ffff00', '00ffff'
     )
-    def cycle():
-        i = 0
-        while True:
-            yield colors[i % len(colors)]
-            i += 1
     # Pair each iterable entry with a color
-    return zip(iterable, cycle())
+    return zip(iterable, itertools.cycle(colors))
 
 
 def main(opener, channel_names, n_workers=1):
@@ -115,66 +111,33 @@ def main(opener, channel_names, n_workers=1):
     scale = np.iinfo(dtype).max if np.issubdtype(dtype, np.integer) else 1
     level = n_levels - 1
 
-    output_groups = dict()
-
-    def record_thresholds(*args_list):
-        for recorder, thresholder in args_list:
-            recorder(thresholder())
-
-    def to_recorder(gi, ci):
-        def recorder(channel):
-            group = output_groups.get(gi, {})
-            group[ci] = channel
-            output_groups[gi] = group
-        return recorder
-
-    def to_thresholder(ci, color):
+    def threshold(ci):
         img = opener.wrapper[level, :, :, 0, ci, 0]
         if img.min() < 0:
-            print("  WARNING: Ignoring negative pixel values", file=sys.stderr)
-        def thresholder():
-            vmin, vmax = auto_threshold(img)
-            return {
+            print(
+                f"  WARNING: Ignoring negative pixel values in channel {ci}",
+                file=sys.stderr,
+            )
+        res = auto_threshold(img)
+        return res
+
+    with concurrent.futures.ThreadPoolExecutor(n_workers) as pool:
+        thresholds = list(pool.map(threshold, range(n_channels)))
+
+    channel_groups = group_channels(n_channels, channel_names)
+    output_groups = {}
+    for gi, channel_range in channel_groups.items():
+        group = {}
+        for ci, color in color_cycle(channel_range):
+            vmin, vmax = thresholds[ci]
+            group[ci] = {
                 "color": color,
                 "id": ci,
                 "label": channel_names[ci],
                 "min": vmin / scale,
                 "max": vmax / scale,
             }
-        return thresholder
-
-    channel_groups = group_channels(n_channels, channel_names) 
-    group_args = [
-        (to_recorder(gi, ci), to_thresholder(ci, color))
-        for gi, channel_range in channel_groups.items()
-        for ci, color in color_cycle(channel_range)
-    ]
-    n_groups = len(channel_groups)
-    n_workers = min(n_workers, n_groups)
-    multi_group_args = [
-        group_args[i::n_workers]
-        for i in range(len(group_args) // n_workers)
-    ]
-    group_sizes = set(
-        len(channel_range) for channel_range in channel_groups.values()
-    )
-    group_range = '-'.join([
-        str(size) for size in sorted(group_sizes)
-    ])
-    print(f'''Auto-Grouping:
-    {n_groups} groups of {group_range} channels
-    over {n_workers} threads
-    ''')
-
-    threads = [
-        threading.Thread(target=record_thresholds, args=args)
-        for args in multi_group_args
-    ]
-    for th in threads:
-        th.start()
-
-    for th in threads:
-        th.join()
+        output_groups[gi] = group
    
     auto_groups = [
         output_groups[gi] for gi in

@@ -15,6 +15,8 @@ import logging
 import multiprocessing
 multiprocessing.freeze_support()
 import pathlib
+import sklearn.utils.fixes
+import threadpoolctl
 from create_vega import (
     create_vega_dict,
     create_scatterplot,
@@ -28,7 +30,6 @@ from datetime import datetime
 from distutils import file_util
 from distutils.errors import DistutilsFileError
 from functools import update_wrapper, wraps
-from pathlib import Path
 
 # Needed for pyinstaller
 from numcodecs import blosc, compat_ext  # noqa
@@ -73,6 +74,8 @@ from storyexport import (
 if os.name == "nt":
     from ctypes import windll
 
+sklearn.utils.fixes.threadpool_limits(1)
+threadpoolctl.threadpool_limits(1)
 
 tiff_lock = multiprocessing.Lock()
 mask_lock = multiprocessing.Lock()
@@ -92,10 +95,11 @@ tifffile.tifffile.log_warning = custom_log_warning
 
 
 def to_num_workers():
-    num_workers = multiprocessing.cpu_count()
     if hasattr(os, "sched_getaffinity"):
         num_workers = len(os.sched_getaffinity(0))
-    return min(num_workers, multiprocessing.cpu_count() - 2)
+    else:
+        num_workers = multiprocessing.cpu_count()
+    return num_workers
 
 def gamma_correct_float(float_tile, gamma):
     return np.power(float_tile, gamma)
@@ -129,7 +133,8 @@ def yield_labels(opener, csv_file, chan_label, num_channels):
     no_header = False
     can_open_csv = False
     # First, try to load labels from CSV
-    try:
+    csv_file = pathlib.Path(csv_file)
+    if csv_file.exists() and not csv_file.is_dir():
         # Assume header
         with open(csv_file, encoding="utf-8-sig") as cf:
             for row in csv.DictReader(cf):
@@ -149,7 +154,7 @@ def yield_labels(opener, csv_file, chan_label, num_channels):
                     yield chan_label.get(str(label_num), row[0] or str(label_num))
                     label_num += 1
 
-    except (FileNotFoundError, IsADirectoryError):
+    else:
         # Second, try to load labels from OME-XML
         for label in opener.load_xml_markers():
             yield label
@@ -1925,9 +1930,9 @@ def file_browser():
     orig_folder = folder
     parent = request.args.get("parent")
     if folder is None or folder == "":
-        folder = Path.home()
+        folder = pathlib.Path.home()
     elif parent == "true":
-        folder = Path(folder).parent
+        folder = pathlib.Path(folder).parent
 
     if not os.path.exists(folder):
         return api_error(404, "Path not found")
