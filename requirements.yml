@@ -20,6 +20,7 @@ dependencies:
   - pandas=1.5.0
   - zarr=2.13.3
   - altair=4.2.0
+  - blas=*=blis  # blis build seems to avoid threading deadlocks
   - pip=22.3
   - pip:
       - openslide-python==1.2.0
