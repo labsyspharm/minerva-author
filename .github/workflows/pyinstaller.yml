@@ -58,8 +58,8 @@ jobs:
         if: startsWith(matrix.os,'windows')
         shell: cmd /C CALL {0}
         run: |
-          move "dist" "minerva_author_{{ github.ref_name }}"
-          7z a minerva_author_{{ github.ref_name }}_windows.zip minerva_author_{{ github.ref_name }}
+          move "dist" "minerva_author_${{ github.ref_name }}"
+          7z a minerva_author_${{ github.ref_name }}_windows.zip minerva_author_${{ github.ref_name }}
       - name: Package Mac
         if: startsWith(matrix.os,'mac')
         shell: bash -l {0}
@@ -69,9 +69,9 @@ jobs:
         if: startsWith(matrix.os,'mac')
         shell: bash -l {0}
         run: |
-          mv dist minerva_author_{{ github.ref_name }}
-          mv minerva_author_{{ github.ref_name }}/app minerva_author_{{ github.ref_name }}/minerva_author
-          zip -vr minerva_author_{{ github.ref_name }}_macos.zip minerva_author_{{ github.ref_name }}/ -x "*.DS_Store"
+          mv dist minerva_author_${{ github.ref_name }}
+          mv minerva_author_${{ github.ref_name }}/app minerva_author_${{ github.ref_name }}/minerva_author
+          zip -vr minerva_author_${{ github.ref_name }}_macos.zip minerva_author_${{ github.ref_name }}/ -x "*.DS_Store"
       - name: Create Release
         if: ${{ github.event_name == 'push' }}
         uses: softprops/action-gh-release@v1
