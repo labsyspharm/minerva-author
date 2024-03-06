@@ -1183,6 +1183,10 @@ def format_overlay(o):
 def make_waypoints(d, mask_data, vis_path_dict={}):
 
     for waypoint in d:
+        no_name = 0 == len(waypoint.get('name',''))
+        no_text = 0 == len(waypoint.get('text',''))
+        if len(d) == 1 and no_name and no_text:
+            continue
         mask_labels = []
         if len(mask_data) > 0:
             wp_masks = waypoint["masks"]
