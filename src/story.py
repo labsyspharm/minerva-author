@@ -1,5 +1,6 @@
 import concurrent.futures
 import csv
+import math
 import itertools
 import json
 import numpy as np
@@ -41,35 +42,53 @@ def auto_threshold(img):
 
     return vmin, vmax
 
-def to_heuristic(channel_names, step_size):
+def to_heuristic(has_keyword, channel_names, step_size):
+    n_channels = len(channel_names)
     names = channel_names[::step_size]
     # Preferences from most to least important
-    # Few trigrams, few bigrams, low modulo
     return (
-        len(set([ name[:3] for name in names ]))/len(names),
-        len(set([ name[:2] for name in names ]))/len(names),
-        len(channel_names) % step_size
+        len([
+            name for name in names
+            if has_keyword(name)
+        ]),
+        int(n_channels % step_size == 0),
+        (n_channels % step_size)
     )
 
-def group_channels(n_channels, channel_names):
+def to_group_starts(channel_names):
     size_options = [3, 4, 5, 6]
-    # Group with fewest initial ngrams
+    def has_keyword(name):
+        return any(
+            keyword in name.lower()
+            for keyword in [ 'dna', 'hoechst' ]
+        )
+    # most initial keywords, else most evenly divisible
     size_stats = sorted([
-        (*to_heuristic(channel_names, size), size)
+        (*to_heuristic(has_keyword, channel_names, size), size)
         for size in size_options 
-    ])
+    ], reverse=True)
     group_size = size_stats[0][-1]
-    # Groups must be at least half size
-    min_size = 2 + group_size // 2
-    group_starts = list(range(0, n_channels, group_size))
+    min_size = math.ceil(group_size / 2)
+    group_starts = []
+    # Keywords and/or evenly spaced groups
+    for idx, name in enumerate(channel_names):
+        if len(group_starts) > 0:
+            last_group_size = idx - group_starts[-1]
+            remainder = last_group_size % group_size
+            if last_group_size < min_size:
+                continue
+            if not has_keyword(name) and remainder != 0:
+                continue
+        # Channel index is start of new group
+        group_starts.append(idx)
+    return group_starts
+
+def group_channels(n_channels, channel_names):
+    group_starts = to_group_starts(channel_names)
     group_iter = zip(group_starts, group_starts[1:]+[None])
     channel_groups = []
     for gi, pair in enumerate(group_iter):
         channel_range = list(range(n_channels)[slice(*pair)])
-        if gi > 0 and len(channel_range) < min_size:
-            last_range = channel_groups[-1][-1]
-            last_range += channel_range
-            continue
         channel_groups.append([gi, channel_range])
     return dict(channel_groups)
 
