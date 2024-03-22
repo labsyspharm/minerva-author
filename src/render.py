@@ -35,7 +35,7 @@ def json_to_html(exhibit):
         '    <body>\n'
         '        <div id="minerva-browser" style="position: absolute; top: 0; left: 0; height: 100%; width: 100%;"></div>\n'
         '        <script defer src="https://use.fontawesome.com/releases/v5.2.0/js/all.js" integrity="sha384-4oV5EgaV02iISL2ban6c/RmotsABqE4yZxZLcYMAdG7FAPsyHYAPpywE9PJo+Khy" crossorigin="anonymous"></script>\n'
-        '        <script src="https://cdn.jsdelivr.net/npm/minerva-browser@3.19.4/build/bundle.js"></script>\n'
+        '        <script src="https://cdn.jsdelivr.net/npm/minerva-browser@3.19.6/build/bundle.js"></script>\n'
         '        <script>\n'
         '         window.viewer = MinervaStory.default.build_page({\n'
                      f'exhibit: {exhibit},\n'
@@ -129,10 +129,12 @@ def make_exhibit_config(in_shape, root_url, saved, rgba):
         "Groups": list(make_groups(saved["groups"])),
         "Masks": [],
     }
-    first_group = saved["sample_info"].get("first_group", None)
-    default_group = saved["sample_info"].get("default_group", None)
+    first_group = saved.get("first_group", None)
+    default_group = saved.get("default_group", None)
+    first_viewport = saved.get("first_viewport", None)
     pixels_per_micron = saved["sample_info"].get("pixels_per_micron", None)
     exhibit = set_if_not_none(exhibit, "PixelsPerMicron", pixels_per_micron)
+    exhibit = set_if_not_none(exhibit, "FirstViewport", first_viewport)
     exhibit = set_if_not_none(exhibit, "DefaultGroup", default_group)
     exhibit = set_if_not_none(exhibit, "FirstGroup", first_group)
 
