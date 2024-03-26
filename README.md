@@ -1,16 +1,20 @@
-## Minerva Repository Structure
+## Download and run Minerva Author
+
+New users should start with our [pre-built Windows and MacOS applications](https://github.com/labsyspharm/minerva-author/releases/latest). More detailed [download and launch instructions](https://www.minerva.im/download.html) can be found at the Minerva website, in addition to [complete instructions and tutorials](https://www.minerva.im/usage/).
+
+## Information For Software Developers
 
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-### Minerva Story
+### Project Structure
+
+#### Minerva Story
 The GitHub Pages site build is stored at [minerva-story](https://github.com/labsyspharm/minerva-story). The source code for the minified bundle is stored at [minerva-browser](https://github.com/labsyspharm/minerva-browser).
 
-### Minerva Author
+#### Minerva Author
 The Python Flask server along with automated testing is stored at [minerva-author](https://github.com/labsyspharm/minerva-author). The React UI is stored at [minerva-author-ui](https://github.com/labsyspharm/minerva-author-ui)
 
-## Using Minerva Author
-
-### Installing
+### Installing From the Source Repository
 
 All commands should be run in "Terminal" on MacOS and "Anaconda Prompt" on Windows.
 
@@ -20,7 +24,7 @@ First, download this repository through the git command line:
 git clone https://github.com/labsyspharm/minerva-author.git
 ```
 
-### Windows
+#### Windows
 
  * [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
  * Install [Anaconda](https://docs.anaconda.com/anaconda/install/windows/)
@@ -35,7 +39,7 @@ conda env create -f requirements.yml
 conda activate minerva-author
 ```
 
-### MacOS
+#### MacOS
 
  * install [homebrew](https://brew.sh/) and run `brew install openslide`.
  * Install [Anaconda](https://docs.anaconda.com/anaconda/install/mac-os/)
