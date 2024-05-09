@@ -1,9 +1,13 @@
 import argparse
 import json
 import logging
+import csv
 import os
+import re
 import pathlib
 import threading
+import concurrent.futures
+from itertools import cycle
 from distutils import file_util
 from distutils.errors import DistutilsFileError
 from json.decoder import JSONDecodeError
@@ -16,9 +20,10 @@ from tifffile.tifffile import TiffFileError
 
 from thumbnail import find_group_tiles
 from thumbnail import merge_tiles_and_save_image
-from app import Opener, extract_story_json_stem, make_channels, make_groups, make_rows, make_stories
+from app import Opener, extract_story_json_stem, make_channels, make_groups, make_rows, make_stories, make_mask_rows
 from storyexport import deduplicate_data, copy_vega_csv
 from render_jpg import render_color_tiles, composite_channel
+from render_png import render_u32_tiles
 
 
 def json_to_html(exhibit):
@@ -185,7 +190,7 @@ def render_one_tile(one_tile, output_dir, config_rows):
         img.save(output_file, quality=85)
 
 
-def main(ome_tiff, author_json, output_dir, root_url, vis_dir, n_threads, force=False):
+def main(ome_tiff, author_json, output_dir, root_url, vis_dir, mask_tiff, mask_map, n_threads, force=False):
     FORMATTER = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
@@ -245,17 +250,74 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, n_threads, force=
     exhibit_config = make_exhibit_config(in_shape, root_url, saved, rgba)
     copy_vis_csv_files(saved["waypoints"], author_json, output_dir, vis_dir)
 
-    with open(output_dir / "exhibit.json", "w") as wf:
-        json.dump(exhibit_config, wf)
-
-    with open(output_dir / "index.html", "w") as wf:
-        exhibit_string = json.dumps(exhibit_config)
-        wf.write(json_to_html(exhibit_string))
-
     if opener.reader is None:
         config_rows = list(make_rows(saved["groups"], rgba))
         render_one_tile(one_tile, output_dir, config_rows)
     else:
+        if mask_tiff is not None:
+            mask_id_lists = dict()
+            with open(mask_map, encoding="utf-8-sig") as cf:
+                for row in csv.DictReader(cf):
+                    mask_label = re.sub('[/\\\]', '-', row['State'])
+                    mask_id_list = mask_id_lists.get(mask_label, [])
+                    mask_id_list.append(int(row['CellID']))
+                    mask_id_lists[mask_label] = mask_id_list
+            mask_labels = sorted(
+                mask_id_lists.keys()
+            )
+            mask_config = [
+                {
+                    'label': mask_label,
+                    'path': mask_tiff,
+                    'channels': [{
+                        'color': color, 'ids': mask_id_lists[mask_label],
+                        'opacity': 1
+                     }]
+                }
+                for color, mask_label in zip(
+                    cycle([
+                        '0000FF', '00FF00', 'FF0000',
+                        '00FFFF', 'FF00FF', 'FFFF00',
+                        'FFFFFF'
+                    ]),
+                    mask_labels
+                )
+            ]
+            exhibit_config['Masks'] = [
+                {
+                    "Path": config['label'],
+                    "Name": config['label'],
+                    "Channels": [config['label']],
+                    "Colors": [config['channels'][0]['color']]
+                }
+                for config in mask_config
+            ]
+            mask_config_rows = [
+                {**config, 'images': [ image ]}
+                for config in list(
+                    make_mask_rows(output_dir, mask_config, None)
+                )
+                for image in config['images']
+            ]
+            def render_mask(mask_params):
+                mask_out_path = mask_params['images'][0]['out_path']
+                ids = mask_params['images'][0]['settings']['channels'][0]['ids']
+                print(
+                    f'{mask_out_path}: Rendering {len(ids)} segmentation IDs'
+                )
+                render_u32_tiles(
+                    mask_params, opener.to_tsize(), logger 
+                )
+            with concurrent.futures.ThreadPoolExecutor(n_threads) as pool:
+                list(pool.map(render_mask, mask_config_rows))
+
+        with open(output_dir / "exhibit.json", "w") as wf:
+            json.dump(exhibit_config, wf)
+
+        with open(output_dir / "index.html", "w") as wf:
+            exhibit_string = json.dumps(exhibit_config)
+            wf.write(json_to_html(exhibit_string))
+
         render(opener, saved, output_dir, rgba, n_threads, logger)
 
         # Render thumbnail
@@ -301,6 +363,20 @@ if __name__ == "__main__":
         help="URL to planned hosting location of rendered JPEG pyramid",
     )
     parser.add_argument(
+        "--mask",
+        metavar="mask",
+        type=pathlib.Path,
+        default=None,
+        help="Input segmentation mask image file",
+    )
+    parser.add_argument(
+        "--mask-ids",
+        metavar="mask_ids",
+        type=pathlib.Path,
+        default=None,
+        help="Input segmentation mask ID csv file",
+    )
+    parser.add_argument(
         "--vis",
         metavar="vis",
         type=pathlib.Path,
@@ -313,9 +389,14 @@ if __name__ == "__main__":
     ome_tiff = args.ome_tiff
     author_json = args.author_json
     output_dir = args.output_dir
+    mask_tiff = args.mask
+    mask_map = args.mask_ids
     n_threads = args.threads
     root_url = args.url
     vis_dir = args.vis
     force = args.force
 
-    main(ome_tiff, author_json, output_dir, root_url, vis_dir, n_threads, force)
+    if mask_tiff != None:
+        assert mask_map != None
+
+    main(ome_tiff, author_json, output_dir, root_url, vis_dir, mask_tiff, mask_map, n_threads, force)
