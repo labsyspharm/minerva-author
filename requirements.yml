@@ -22,6 +22,6 @@ dependencies:
   - altair=4.2.0
   - blas=*=blis  # blis build seems to avoid threading deadlocks
   - pip=22.3
+  - pyinstaller==6.10
   - pip:
       - openslide-python==1.2.0
-      - pyinstaller==5.13

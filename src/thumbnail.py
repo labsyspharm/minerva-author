@@ -2,11 +2,12 @@ import os
 import json
 import argparse
 import numpy as np
-import skimage as ski
+import skimage.io
+import skimage.util
 
 def linear_blend(images):
     float_images = [
-        (color, ski.img_as_float(i))
+        (color, skimage.util.img_as_float(i))
         for (_, color, i) in images
     ]
     # Use first channel to define output
@@ -19,7 +20,7 @@ def linear_blend(images):
         float_out += float_color * float_image
     # Uint8 output
     out = np.clip(float_out, 0, 1)
-    return ski.img_as_ubyte(out)
+    return skimage.util.img_as_ubyte(out)
 
 def parse_hex_color(hex_color):
     hex_color = hex_color.lstrip('#')
@@ -33,10 +34,10 @@ def load_json(filename):
         return json.load(f)
 
 def load_jpeg(filename):
-    return ski.io.imread(filename)
+    return skimage.io.imread(filename)
 
 def save_jpeg(filename, image):
-    ski.io.imsave(filename, image)
+    skimage.io.imsave(filename, image)
 
 def to_path_zoom(name):
     zoom = name.split('_')[0]
