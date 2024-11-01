@@ -273,13 +273,14 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, mask_tiff, mask_m
                     'label': mask_item["label"],
                     'path': mask_tiff,
                     'channels': [{
-                        'color': mask_item["color"],
-                        'ids': mask_id_lists[mask_item["original_label"]],
-                        'opacity': mask_item.get("opacity", 1)
+                        'color': mask_channel["color"],
+                        'ids': mask_id_lists[mask_channel["original_label"]],
+                        'opacity': mask_channel.get("opacity", 1)
                      }]
                 }
                 for mask_item in saved_masks
-                if mask_item["original_label"] in mask_id_lists
+                for mask_channel in mask_item["channels"][:1]
+                if mask_channel["original_label"] in mask_id_lists
             ]
             input_output_waypoints = zip(
                 saved["waypoints"], exhibit_config['Stories'][0]["Waypoints"]
