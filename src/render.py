@@ -264,26 +264,19 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, mask_tiff, mask_m
                     mask_id_list = mask_id_lists.get(mask_label, [])
                     mask_id_list.append(int(row['CellID']))
                     mask_id_lists[mask_label] = mask_id_list
-            mask_labels = sorted(
-                mask_id_lists.keys()
-            )
+            # Find matching IDs for the saved masks
             mask_config = [
                 {
-                    'label': mask_label,
+                    'label': mask_item["label"],
                     'path': mask_tiff,
                     'channels': [{
-                        'color': color, 'ids': mask_id_lists[mask_label],
-                        'opacity': 1
+                        'color': mask_item["color"],
+                        'ids': mask_id_lists[mask_item["original_label"]],
+                        'opacity': mask_item.get("opacity", 1)
                      }]
                 }
-                for color, mask_label in zip(
-                    cycle([
-                        '0000FF', '00FF00', 'FF0000',
-                        '00FFFF', 'FF00FF', 'FFFF00',
-                        'FFFFFF'
-                    ]),
-                    mask_labels
-                )
+                for mask_item in saved.get("masks", [])
+                if mask_item["original_label"] in mask_id_lists
             ]
             exhibit_config['Masks'] = [
                 {
