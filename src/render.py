@@ -260,6 +260,7 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, mask_tiff, mask_m
     else:
         if mask_tiff is not None:
             mask_id_lists = dict()
+            saved_masks = saved.get("masks", [])
             with open(mask_map, encoding="utf-8-sig") as cf:
                 for row in csv.DictReader(cf):
                     mask_label = re.sub('[/\\\]', '-', row['State'])
@@ -277,9 +278,21 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, mask_tiff, mask_m
                         'opacity': mask_item.get("opacity", 1)
                      }]
                 }
-                for mask_item in saved.get("masks", [])
+                for mask_item in saved_masks
                 if mask_item["original_label"] in mask_id_lists
             ]
+            input_output_waypoints = zip(
+                saved["waypoints"], exhibit_config['Stories'][0]["Waypoints"]
+            )
+            # Ensure all waypoint masks match config label
+            for input_wp, output_wp in input_output_waypoints:
+                output_wp["Masks"] = [
+                    saved_masks[mask_index]["label"]
+                    for mask_index in input_wp.get("masks", [])
+                    if len(saved_masks) > mask_index
+                ]
+                output_wp["ActiveMasks"] = output_wp["Masks"] 
+
             exhibit_config['Masks'] = [
                 {
                     "Path": config['label'],
