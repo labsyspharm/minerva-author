@@ -53,6 +53,7 @@ from flask_cors import CORS, cross_origin
 
 # Local sub-modules
 from pyramid_assemble import main as make_ome
+from use_llm_prompt import main as use_llm_prompt
 from render_jpg import _calculate_total_tiles, composite_channel, render_color_tiles
 from render_png import colorize_integer, colorize_mask, render_tile, render_u32_tiles
 from render_png import MissingTilePNG
@@ -1027,6 +1028,27 @@ def u32_image(key, level, x, y):
         return response
 
     return send_file(img_io, mimetype="image/png")
+
+
+@app.route("/api/cropped/<key>/<text>/<x0>_<x1>_<y0>_<y1>")
+@cross_origin()
+@nocache
+def cropped(key, text, x0, x1, y0, y1):
+    selected_channel_settings = [
+        {
+            "id": int(id), "min": float(min), "max": float(max), "color": "#"+color
+        }
+        for id, min, max, color in [
+            c.split("_") for c in request.args.getlist('c')
+        ]
+    ]
+    in_image_path = unquote(key)
+    in_text = unquote(text)
+    return use_llm_prompt(
+        in_text if in_text != "null" else None, in_image_path, 
+        [float(v) for v in (x0, x1, y0, y1)],
+        selected_channel_settings
+    )
 
 
 @app.route("/api/u16/<key>/<channel>/<level>_<x>_<y>.png")
