@@ -1042,12 +1042,19 @@ def cropped(key, text, x0, x1, y0, y1):
             c.split("_") for c in request.args.getlist('c')
         ]
     ]
+    make_quiz = "quiz" in request.args
     in_image_path = unquote(key)
     in_text = unquote(text)
+
+    (invalid, opener) = return_image_opener(in_image_path)
+    if invalid:
+        return {
+            groups: {} # TODO
+        }
     return use_llm_prompt(
-        in_text if in_text != "null" else None, in_image_path, 
+        in_text if in_text != "null" else None, opener, 
         [float(v) for v in (x0, x1, y0, y1)],
-        selected_channel_settings
+        selected_channel_settings, make_quiz
     )
 
 

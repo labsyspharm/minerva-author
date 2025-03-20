@@ -1,7 +1,6 @@
 from matplotlib import colors
 from flask import send_file # TODO
 import numpy as np
-import tifffile
 import zarr
 from PIL import Image
 import base64
@@ -10,6 +9,12 @@ import json
 import sys
 import os
 import io
+
+
+def return_image_opener(path):
+    opener = return_opener(path, "image_openers")
+    success = cache_image_opener(path, opener)
+    return (not success, opener)
 
 
 def encode_image_url(array):
@@ -23,7 +28,7 @@ def encode_image_url(array):
 def make_questions_from_image(client, image_url, text, model):
 
     ROLE_DESCRIPTION = [
-        "you are a expert pathology teacher at a prestigious university, your task is to generate exam question for your students based on the given H&E image and some notes about it, your exam questions are the best at showing the full range of the student knwoledge"
+        "you are a expert pathology teacher at a prestigious university, your task is to generate exam question for your students based on the given image and some notes about it, your exam questions are the best at showing the full range of the student knwoledge"
     ]
 
     OUTPUT_DESCRIPTION = [
@@ -168,16 +173,12 @@ def waypoint_to_image_rect(
 
 
 def composite_image(
-    waypoint, image_path, selected_channel_settings
+    waypoint, opener, selected_channel_settings
 ):
     target = None
     best_size = 1024
-    series = tifffile.TiffFile(image_path).series
-    group = zarr.open(series[0].aszarr())
-    dim_list = [
-        {"I": "C", "S": "C"}.get(d, d)
-        for d in series[0].get_axes()
-    ]
+    group = opener.group 
+    dim_list = opener.wrapper.dim_list 
     # Treat non-pyramids as groups of one array
     if isinstance(group, zarr.core.Array):
         root = zarr.group()
@@ -192,14 +193,14 @@ def composite_image(
     best_level = nearest_power_of_two(
         best_size, x0, x1, y0, y1 
     )
-    level = min(best_level, len(group)-1)
+    level = max(0, min(best_level, len(group)-1))
     ( x0, x1, y0, y1 ) = waypoint_to_image_rect(
         waypoint, group[level].shape[dim_list.index("Y")],
         group[level].shape[dim_list.index("X")]
     )
-    sample = 2**nearest_power_of_two(
+    sample = 2**max(0, nearest_power_of_two(
         best_size, x0, x1, y0, y1 
-    )
+    ))
 
     for settings in selected_channel_settings:
         ( channel_id, color, range_min, range_max ) = (
@@ -226,87 +227,75 @@ def composite_image(
 
 
 def to_quiz_waypoint(
-    client, waypoint, image_path,
-    selected_channel_settings, model
+    client, waypoint, opener,
+    selected_channel_settings,
+    make_quiz, model
 ):
     array = composite_image(
-        waypoint, image_path, selected_channel_settings
+        waypoint, opener, selected_channel_settings
     )
     text = waypoint["Description"]
     image_url = encode_image_url(array)
+    image_url_small = encode_image_url(array[::2,::2])
+    if not make_quiz:
+        return {
+            "image": image_url_small
+        }
     response = make_questions_from_image(
         client, image_url, text, model
     )
-    try:
-        choice = response.choices[0]
-        output = json.loads(choice.message.content)["group1"][0]
-        question = output["question"]
-        answer = output["answer"]
-        a = output["a"]
-        b = output["b"]
-        c = output["c"]
-        d = output["d"]
-        correct = (
-            f': "{output[answer]}"'
-        ) if answer in output else ''
-        description = f'''## Question
-{question}
-
-## Options
-
-A. {a}  
-B. {b}  
-C. {c}  
-D. {d}  
-
-## Correct Answer
-
-{answer.upper()}{correct}
-'''
-        return {
-            **waypoint, "Description": description
-        }
-    except IndexError as e:
-        print(e, file=sys.stderr)
+    choice = response.choices[0]
+    quiz_groups = {}
+    # Try LLM up to thrice 
+    for n in range(1, 4):
+        try: 
+            quiz_groups = json.loads(choice.message.content)
+            break
+        except json.decoder.JSONDecodeError as e:
+            print(f"Failed LLM attempt #{n} due to JSON issue")
+            pass
+    return {
+        "image": image_url_small,
+        "groups": quiz_groups 
+        #"groups": {"group1":[{"a":"Hematoxylin and Eosin","answer":"a","b":"Gram stain","c":"Masson's trichrome","d":"Periodic acid-Schiff","question":"What type of staining technique is observed in the image?"},{"a":"Eosinophilic","answer":"a","b":"Basophilic","c":"Acidophilic","d":"Neutral","question":"Which of the following best describes the predominant staining pattern in the image?"},{"a":"Nuclei","answer":"b","b":"Cytoplasm","c":"Collagen fibers","d":"Starches","question":"What cellular components are stained red in the image?"},{"a":"Necrosis","answer":"b","b":"Vascularity","c":"Presence of fat","d":"Inflammation","question":"In the context of pathology, what does the presence of red staining indicate?"},{"a":"Red","answer":"b","b":"Blue","c":"Pink","d":"Green","question":"What color does hematoxylin stain the nuclei in this image?"}],"group2":[{"a":"Adipose tissue","answer":"c","b":"Muscle tissue","c":"Vascular tissue","d":"Epithelial tissue","question":"What specific type of tissue may the red areas in the image represent?"},{"a":"Nuclei","answer":"b","b":"Fibrous tissue","c":"Stroma","d":"Lipid vesicles","question":"Which structures can be seen in the dark areas of the image?"},{"a":"Tumor presence","answer":"c","b":"Infection","c":"Inflammation","d":"Degeneration","question":"The scattered cellular components in the image imply which pathological condition?"},{"a":"Over-staining","answer":"d","b":"Under-staining","c":"Poor fixation","d":"Dehydration","question":"What staining artifact might be responsible for the black background in this image?"},{"a":"Cellular necrosis","answer":"c","b":"Foreign material","c":"Blood vessels","d":"Staining artifacts","question":"What is the significance of the yellow markers in the image?"}],"group3":[{"a":"Vascular tumor","answer":"d","b":"Chronic inflammation","c":"Granuloma","d":"Hemangioma","question":"The presence of elongated red structures in the image may suggest what specific pathology?"},{"a":"Hyperplasia","answer":"a","b":"Atrophy","c":"Dysplasia","d":"Metaplasia","question":"The distribution of staining intensity in the image can indicate what specific type of tissue response?"},{"a":"Presence of necrotic tissue","answer":"c","b":"Presence of inflammatory cells","c":"Presence of collagen deposition","d":"Presence of fibrous tissue","question":"What qualitative assessment can be made about the extracellular matrix based on the H&E staining?"},{"a":"Lymphocytes","answer":"c","b":"Eosinophils","c":"Neutrophils","d":"Basophils","question":"Which cellular morphology is indicative of an acute inflammatory response seen in the image?"},{"a":"Infectious disease","answer":"d","b":"Autoimmune disorder","c":"Malignancy","d":"Allergic reaction","question":"The features of the cells shown in the image can help diagnose which of the following conditions?"}]}
+    }
 
 
-def to_quiz_stories(
-    client, exhibit, image_path,
-    selected_channel_settings, model
+def to_quiz_json(
+    client, exhibit, opener,
+    selected_channel_settings,
+    make_quiz, model
 ):
-    for in_story in exhibit["Stories"]:
-        in_waypoints = in_story["Waypoints"]
-        out_waypoints = []
-        for waypoint in in_waypoints:
-            out_waypoints.append(to_quiz_waypoint(
-                client, waypoint, image_path,
-                selected_channel_settings, model
-            ))
-        yield {
-            **in_story, "Waypoints": list(out_waypoints)
-        }
+    in_story = exhibit["Stories"][0]
+    waypoint = in_story["Waypoints"][0]
+    return to_quiz_waypoint(
+        client, waypoint, opener,
+        selected_channel_settings,
+        make_quiz, model
+    )
 
 
-def update_exhibit_with_llm(
-    exhibit, image_path, selected_channel_settings, model
+def update_with_llm(
+    exhibit, opener, selected_channel_settings,
+    make_quiz, model
 ):
     client = openai.AzureOpenAI(
         api_key=os.getenv("AZURE_OPENAI_API_KEY"),
         api_version="2024-05-01-preview",
         azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
     )
-    stories = to_quiz_stories(
-        client, exhibit, image_path,
-        selected_channel_settings, model
+    return to_quiz_json(
+        client, exhibit, opener,
+        selected_channel_settings,
+        make_quiz, model
     )
-    return {
-        **exhibit, "Stories": list(stories)
-    }
 
 
 def main(
-    in_text, in_image_path, roi_coordinates, selected_channel_settings
+    in_text, opener, roi_coordinates,
+    selected_channel_settings, make_quiz
 ):
+    model = 'gpt-4o-mini'
     in_exhibit = {
         "Stories": [{
             "Waypoints": [{
@@ -317,9 +306,8 @@ def main(
             }]
         }]
     }
-    model = 'gpt-4o-mini'
-    out_exhibit = update_exhibit_with_llm(
-        in_exhibit, in_image_path,
-        selected_channel_settings, model
+    return update_with_llm(
+        in_exhibit, opener,
+        selected_channel_settings,
+        make_quiz, model
     )
-    return out_exhibit["Stories"][0]["Waypoints"][0]["Description"]
