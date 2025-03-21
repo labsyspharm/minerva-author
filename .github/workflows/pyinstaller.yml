@@ -19,6 +19,13 @@ jobs:
     name: Pyinstaller for ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
+      - name: Conda MacOS
+        if: startsWith(matrix.os,'mac')
+        shell: bash -l {0}
+        run: |
+          conda install openslide
+          curl -O https://repo.anaconda.com/archive/Anaconda3-2024.10-1-MacOSX-arm64.sh
+          bash ~/Anaconda3-2024.10-1-MacOSX-arm64.sh -b
       - uses: conda-incubator/setup-miniconda@v2
         with:
           auto-update-conda: true
