@@ -4,6 +4,7 @@ channels:
 dependencies:
   - python=3.10
   - nomkl=1.0
+  - openai=1.68.2
   - numpy=1.23.3
   - pillow=9.2.0
   - flask=2.2.2
