@@ -75,7 +75,7 @@ from storyexport import (
 if os.name == "nt":
     from ctypes import windll
 
-sklearn.utils.fixes.threadpool_limits(1)
+#sklearn.utils.fixes.threadpool_limits(1)
 threadpoolctl.threadpool_limits(1)
 
 tiff_lock = multiprocessing.Lock()
@@ -1854,7 +1854,7 @@ def api_import():
 
             (invalid, opener) = return_image_opener(str(input_image_file))
             if invalid or not opener:
-                img_file = re.search("[^\\\/]*$", str(input_image_file))[0]
+                img_file = re.search(r"[^\/]*$", str(input_image_file))[0]
                 return api_error(404, "IMAGE ASK ERR: " + img_file)
 
             (num_channels, num_levels, width, height) = opener.get_shape()

@@ -1,5 +1,5 @@
 from matplotlib import colors
-from flask import send_file # TODO
+from pathlib import Path
 import numpy as np
 import zarr
 from PIL import Image
@@ -25,10 +25,30 @@ def encode_image_url(array):
     return "data:image/{};base64,{}".format(encoding, encoded_image)
 
 
+def read_textbook_chapter(chapter):
+    ch_path = f'robbins-cotran-ch{chapter}.md'
+    with open(Path('src/robbins-cotran') / ch_path) as rf:
+        return rf.read()
+
+
 def make_questions_from_image(client, image_url, text, model):
 
+    textbook_title = "Robbins & Cotran Pathologic Basis of Disease"
+    selected_chapters = {
+#        '7': 'Neoplasia',
+#        '17': 'The Gastrointestinal Tract'
+    }
     ROLE_DESCRIPTION = [
-        "you are a expert pathology teacher at a prestigious university, your task is to generate exam question for your students based on the given image and some notes about it, your exam questions are the best at showing the full range of the student knwoledge"
+        "You are a expert pathology teacher at a prestigious university, your task is to generate exam questions for your students based on the given image and some notes about it, your exam questions are the best at showing the full range of the student knowledge.",
+        #f"Your students already have studied the following chapters from \"{textbook_title}\" on "
+        #+ " and ".join(str(c) for c in selected_chapters.values()) + "."
+        #] + [
+        #f"{chapter_title}\n\n{read_textbook_chapter(chapter)}" for
+        #chapter, chapter_title in selected_chapters.items()
+    ] + [
+        f"Your exam questions must be answerable from the provided image.",
+        f"Your exam questions must about the provided image.",
+        f"Your exam questions must be unambiguous."
     ]
 
     OUTPUT_DESCRIPTION = [
@@ -172,10 +192,7 @@ def waypoint_to_image_rect(
     return tuple( int(v) for v in ( x0, x1, y0, y1 ) )
 
 
-def composite_image(
-    waypoint, opener, selected_channel_settings
-):
-    target = None
+def select_image(waypoint, opener):
     best_size = 1024
     group = opener.group 
     dim_list = opener.wrapper.dim_list 
@@ -194,13 +211,42 @@ def composite_image(
         best_size, x0, x1, y0, y1 
     )
     level = max(0, min(best_level, len(group)-1))
-    ( x0, x1, y0, y1 ) = waypoint_to_image_rect(
+    box = waypoint_to_image_rect(
         waypoint, group[level].shape[dim_list.index("Y")],
         group[level].shape[dim_list.index("X")]
     )
-    sample = 2**max(0, nearest_power_of_two(
-        best_size, x0, x1, y0, y1 
-    ))
+    sample = 2**max(
+        0, nearest_power_of_two(best_size, *box)
+    )
+    return wrapper, level, sample, box
+
+
+def yield_histograms(
+    waypoint, opener, selected_channel_settings
+):
+    wrapper, level, sample, box = select_image(waypoint, opener)
+    x0, x1, y0, y1 = box
+
+    for settings in selected_channel_settings:
+        ( channel_id, color, range_min, range_max ) = (
+            settings[k] for k in ("id", "color", "min", "max")
+        )
+        image = wrapper[
+            level, x0:x1:sample, y0:y1:sample, 0, channel_id, 0
+        ]
+        bins = np.logspace(1, 16, 750)
+        print(bins)
+        yield (
+            channel_id, list(np.histogram(image, bins=bins, density=True)[0]) 
+        )
+
+
+def composite_image(
+    waypoint, opener, selected_channel_settings
+):
+    wrapper, level, sample, box = select_image(waypoint, opener)
+    x0, x1, y0, y1 = box
+    target = None
 
     for settings in selected_channel_settings:
         ( channel_id, color, range_min, range_max ) = (
@@ -214,7 +260,6 @@ def composite_image(
                 (image.shape[0], image.shape[1], 3),
                 np.float32
             )
-
         iinfo = np.iinfo(image.dtype)
         composite_channel(
             target, image, colors.to_rgb(color),
@@ -231,12 +276,21 @@ def to_quiz_waypoint(
     selected_channel_settings,
     make_quiz, model
 ):
+    histograms = dict(yield_histograms(
+        waypoint, opener, selected_channel_settings
+    ))
     array = composite_image(
         waypoint, opener, selected_channel_settings
     )
     text = waypoint["Description"]
     image_url = encode_image_url(array)
     image_url_small = encode_image_url(array[::2,::2])
+    # TODO
+#    return {
+#        "image": image_url,
+#        "histograms": histograms 
+#    }
+    # TODO
     if not make_quiz:
         return {
             "image": image_url_small
