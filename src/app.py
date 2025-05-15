@@ -1395,6 +1395,9 @@ def make_exhibit_config(opener, out_name, data):
         "Groups": list(make_groups(group_data)),
     }
     pixels_per_micron = data["image"].get("pixels_per_micron", 0)
+    _config["FirstViewport"] =  {
+        "Pan": [0.5*width/height, 0.5], "Zoom": 0.5
+    }
     if pixels_per_micron != 0:
         _config["PixelsPerMicron"] = pixels_per_micron
     if 'first_group' in data:
