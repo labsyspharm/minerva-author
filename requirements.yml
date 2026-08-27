@@ -1,4 +1,4 @@
-name: minerva-author-new
+name: minerva-author
 channels:
   - conda-forge
 dependencies:
