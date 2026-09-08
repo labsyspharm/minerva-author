@@ -1,3 +1,4 @@
+import argparse
 import os
 import re
 import sys
@@ -80,8 +81,6 @@ threadpoolctl.threadpool_limits(1)
 tiff_lock = multiprocessing.Lock()
 mask_lock = multiprocessing.Lock()
 
-
-PORT = 2020
 
 FORMATTER = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
@@ -2030,12 +2029,39 @@ def close_import_pool():
             print(e)
 
 
-def open_browser():
-    webbrowser.open_new("http://127.0.0.1:" + str(PORT) + "/")
-
 G = reset_globals()
 
+
 if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser(
+        description="Minerva Author back-end web server interface"
+    )
+    parser.add_argument(
+        '--port',
+        type=int,
+        default=2020,
+        help='Port number for the back-end web server (default: 2020)',
+    )
+    parser.add_argument(
+        '--num-workers',
+        type=int,
+        metavar='N',
+        help='Number of worker threads to process data in parallel (default: number of available'
+        ' CPU cores)',
+    )
+    parser.add_argument(
+        '--no-browser',
+        action='store_true',
+        help='Skip automatically opening the app URL in a web browser',
+    )
+    parser.add_argument(
+        '--dev',
+        action='store_true',
+        help='Enable developer mode',
+    )
+    #parser.add_argument('--version', action='version', version=f'minerva-author {__version__}')
+    args = parser.parse_args()
 
     atexit.register(close_tiff)
     atexit.register(close_masks)
@@ -2043,12 +2069,28 @@ if __name__ == "__main__":
 
     sys.stdout.reconfigure(line_buffering=True)
 
-    num_workers = to_num_workers()
-    plural = 's' if num_workers > 1 else ''
-    print(f'Running server with {num_workers} thread{plural}')
-    if "--dev" in sys.argv:
-        open_browser()
-        app.run(debug=False, port=PORT)
+    num_workers = args.num_workers or to_num_workers()
+    print(f'Running server with {num_workers} worker threads')
+
+    author_url = "http://127.0.0.1:" + str(args.port) + "/"
+    if not args.no_browser:
+        browser = webbrowser.get()
+        if browser.name in {'www-browser', 'links', 'elinks', 'lynx', 'w3m'}:
+            print(
+                f'Auto-detected web browser "{browser.name}" is text-only and thus unsuitable'
+                ' for running minerva-author.'
+            )
+            args.no_browser = True
+    print('To access Minerva Author, open this URL in a graphical web browser:\n')
+    print('   ', author_url)
+    print('\n')
+    if not args.no_browser:
+        print('Opening the URL in your default web browser...')
+        webbrowser.open_new(author_url)
+    print("Press Ctrl-C to quit")
+
+    if args.dev:
+        print('Running in developer mode')
+        app.run(debug=False, port=args.port)
     else:
-        open_browser()
-        serve(app, listen="127.0.0.1:" + str(PORT), threads=num_workers, channel_timeout=15)
+        serve(app, port=args.port, threads=num_workers, channel_timeout=15)
