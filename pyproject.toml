@@ -1,0 +1,39 @@
+[project]
+name = "minerva-author"
+version = "1.21.0"
+description = "Minerva Author back-end web server interface"
+readme = "README.md"
+authors = [
+    { name = "John Hoffer", email = "john@hoff.in" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "altair>=5.5.0",
+    "flask>=3.1.1",
+    "flask-cors>=4",
+    "imagecodecs>=2026.8.16",
+    "matplotlib>=3.10.3",
+    "ome-types>=0.6.3",
+    "pandas>=1.5.0",
+    "pillow>=12",
+    "pint>=0.25.3",
+    "scikit-image>=0.25.2",
+    "scikit-learn>=1.6.1",
+    "tifffile>=2026.9.9",
+    "waitress>=3.0.2",
+    "zarr>=3",
+]
+
+[project.scripts]
+minerva-author = "minerva_author.app:main"
+minerva-author-fit-settings = "minerva_author.fit_render_settings:main_wrap"
+minerva-author-render = "minerva_author.render:main"
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.22.2",
+]

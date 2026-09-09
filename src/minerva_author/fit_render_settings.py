@@ -12,7 +12,8 @@ def yield_numeric_labels(num_channels):
         yield str(label_num)
 
 
-if __name__ == "__main__":
+def main():
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "ome_tiff",
@@ -39,3 +40,7 @@ if __name__ == "__main__":
             json.dump(results, wf)
     except (FileNotFoundError, TiffFileError) as e:
         print(f"Invalid ome-tiff file: cannot parse {args.ome_tiff}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

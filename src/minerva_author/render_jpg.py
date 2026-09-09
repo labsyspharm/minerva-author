@@ -1,12 +1,5 @@
-from __future__ import division, print_function
-
 import itertools
-
-try:
-    import pathlib
-except ImportError:
-    import pathlib2 as pathlib
-
+import pathlib
 import json
 import os
 
@@ -104,7 +97,7 @@ def render_color_tiles(
         print("    level {} ({} x {})".format(level, ny, nx))
 
         tile_list = list(itertools.product(range(0, ny), range(0, nx)))
-        print('thread', thread, 'of', n_threads, 'creating', len(tile_list[thread::n_threads]), 'of', len(tile_list), 'tiles for level', level)
+        print('thread', thread + 1, 'of', n_threads, 'creating', len(tile_list[thread::n_threads]), 'of', len(tile_list), 'tiles for level', level)
 
         for ty, tx in tile_list[thread::n_threads]:
 

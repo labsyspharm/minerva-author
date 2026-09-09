@@ -1,5 +1,3 @@
-from __future__ import division, print_function
-
 import argparse
 import concurrent.futures
 import io
@@ -277,7 +275,7 @@ def main(in_paths, out_path, is_mask, pixel_size, num_workers):
     patch_ometiff_xml(out_path, xml)
 
 
-if __name__ == "__main__":
+def main_wrap():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -314,3 +312,7 @@ if __name__ == "__main__":
     pixel_size = args.pixel_size
 
     main(in_paths, out_path, is_mask, pixel_size)
+
+
+if __name__ == "__main__":
+    main_wrap()

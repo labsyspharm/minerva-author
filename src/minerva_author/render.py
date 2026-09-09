@@ -4,7 +4,6 @@ import logging
 import os
 import pathlib
 import threading
-from distutils import file_util
 from distutils.errors import DistutilsFileError
 from json.decoder import JSONDecodeError
 
@@ -14,11 +13,11 @@ import tifffile as tiff
 from matplotlib import colors
 from tifffile.tifffile import TiffFileError
 
-from thumbnail import find_group_tiles
-from thumbnail import merge_tiles_and_save_image
-from app import Opener, extract_story_json_stem, make_channels, make_groups, make_rows, make_stories
-from storyexport import deduplicate_data, copy_vega_csv
-from render_jpg import render_color_tiles, composite_channel
+from .thumbnail import find_group_tiles
+from .thumbnail import merge_tiles_and_save_image
+from .app import Opener, extract_story_json_stem, make_channels, make_groups, make_rows, make_stories
+from .storyexport import deduplicate_data, copy_vega_csv
+from .render_jpg import render_color_tiles, composite_channel
 
 
 def json_to_html(exhibit):
@@ -187,7 +186,53 @@ def render_one_tile(one_tile, output_dir, config_rows):
         img.save(output_file, quality=85)
 
 
-def main(ome_tiff, author_json, output_dir, root_url, vis_dir, n_threads, force=False):
+def main():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "ome-tiff",
+        metavar="OME_TIFF",
+        type=pathlib.Path,
+        help="Input path to OME-TIFF with all channel groups",
+    )
+    parser.add_argument(
+        "author-json",
+        metavar="AUTHOR_JSON",
+        type=pathlib.Path,
+        help="Input Minerva Author save file with channel configuration",
+    )
+    parser.add_argument(
+        "output-dir",
+        metavar="OUTPUT_DIR",
+        type=pathlib.Path,
+        help="Output directory for exhibit and rendered JPEG pyramid",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=1,
+        metavar="N",
+        help="Number of worker threads to process data in parallel (default: 1)",
+    )
+    parser.add_argument(
+        "--url",
+        help="URL of planned hosting location of rendered JPEG pyramid",
+    )
+    parser.add_argument(
+        "--vis",
+        metavar="DIR",
+        type=pathlib.Path,
+        default=None,
+        help="Input data visualization directory (default constructed from author .json)",
+    )
+    parser.add_argument(
+        "--no-images",
+        action="store_true",
+        help="Do not generate JPEG tiles (but do build everything else)",
+    )
+    parser.add_argument("--force", help="Overwrite output", action="store_true")
+    args = parser.parse_args()
+
     FORMATTER = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
@@ -202,17 +247,17 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, n_threads, force=
     saved = None
 
     try:
-        opener = Opener(ome_tiff)
+        opener = Opener(args.ome_tiff)
     except (FileNotFoundError, TiffFileError) as e:
         logger.error(e)
-        logger.error(f"Invalid ome-tiff file: cannot parse {ome_tiff}")
+        logger.error(f"Invalid ome-tiff file: cannot parse {args.ome_tiff}")
         return
 
     in_shape = None
     # Treat as static tiff
     if opener.reader is None:
         print('Opening single tile plain .tif')
-        one_tile = tiff.imread(ome_tiff)
+        one_tile = tiff.imread(args.ome_tiff)
         in_shape = {
             'levels': 1,
             'height': one_tile.shape[0],
@@ -227,97 +272,46 @@ def main(ome_tiff, author_json, output_dir, root_url, vis_dir, n_threads, force=
         }
 
     try:
-        with open(author_json) as json_file:
+        with open(args.author_json) as json_file:
             saved = json.load(json_file)
     except (FileNotFoundError, JSONDecodeError, KeyError) as e:
         logger.error(e)
-        logger.error(f"Invalid save file: cannot parse {author_json}")
+        logger.error(f"Invalid save file: cannot parse {args.author_json}")
         return
 
-    if not force and os.path.exists(output_dir):
-        logger.error(f"Refusing to overwrite output directory {output_dir}")
+    if not args.force and os.path.exists(args.output_dir):
+        logger.error(f"Refusing to overwrite output directory {args.output_dir}")
         return
-    elif force and os.path.exists(output_dir):
-        logger.warning(f"Writing to existing output directory {output_dir}")
+    elif args.force and os.path.exists(args.output_dir):
+        logger.warning(f"Writing to existing output directory {args.output_dir}")
 
-    if not output_dir.exists():
-        output_dir.mkdir(parents=True)
+    if not args.output_dir.exists():
+        args.output_dir.mkdir(parents=True)
 
     rgba = opener.rgba
-    exhibit_config = make_exhibit_config(in_shape, root_url, saved, rgba)
-    copy_vis_csv_files(saved["waypoints"], author_json, output_dir, vis_dir)
+    exhibit_config = make_exhibit_config(in_shape, args.url, saved, rgba)
+    copy_vis_csv_files(saved["waypoints"], args.author_json, args.output_dir, args.vis)
 
-    with open(output_dir / "exhibit.json", "w") as wf:
+    with open(args.output_dir / "exhibit.json", "w") as wf:
         json.dump(exhibit_config, wf)
 
-    with open(output_dir / "index.html", "w") as wf:
+    with open(args.output_dir / "index.html", "w") as wf:
         exhibit_string = json.dumps(exhibit_config)
         wf.write(json_to_html(exhibit_string))
 
     if opener.reader is None:
         config_rows = list(make_rows(saved["groups"], rgba))
-        render_one_tile(one_tile, output_dir, config_rows)
+        render_one_tile(one_tile, args.output_dir, config_rows)
     else:
-        render(opener, saved, output_dir, rgba, n_threads, logger)
+        render(opener, saved, args.output_dir, rgba, args.threads, logger)
 
         # Render thumbnail
         groups = exhibit_config["Groups"]
         if len(groups) > 0:
             group = exhibit_config.get("FirstGroup", groups[0]["Name"])
-            tiles = find_group_tiles(output_dir, output_dir / "exhibit.json", group)
-            merge_tiles_and_save_image(output_dir, tiles)
+            tiles = find_group_tiles(args.output_dir, args.output_dir / "exhibit.json", group)
+            merge_tiles_and_save_image(args.output_dir, tiles)
 
 
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "ome_tiff",
-        metavar="ome_tiff",
-        type=pathlib.Path,
-        help="Input path to OME-TIFF with all channel groups",
-    )
-    parser.add_argument(
-        "author_json",
-        metavar="author_json",
-        type=pathlib.Path,
-        help="Input Minerva Author save file with channel configuration",
-    )
-    parser.add_argument(
-        "output_dir",
-        metavar="output_dir",
-        type=pathlib.Path,
-        help="Output directory for exhibit and rendered JPEG pyramid",
-    )
-    parser.add_argument(
-        "--threads",
-        type=int,
-        default=1,
-        metavar="threads",
-        help="Number of threads to use rendering the JPEG pyramid",
-    )
-    parser.add_argument(
-        "--url",
-        metavar="url",
-        default=None,
-        help="URL to planned hosting location of rendered JPEG pyramid",
-    )
-    parser.add_argument(
-        "--vis",
-        metavar="vis",
-        type=pathlib.Path,
-        default=None,
-        help="Input data visualization directory (default constructed from author .json)",
-    )
-    parser.add_argument("--force", help="Overwrite output", action="store_true")
-    args = parser.parse_args()
-
-    ome_tiff = args.ome_tiff
-    author_json = args.author_json
-    output_dir = args.output_dir
-    n_threads = args.threads
-    root_url = args.url
-    vis_dir = args.vis
-    force = args.force
-
-    main(ome_tiff, author_json, output_dir, root_url, vis_dir, n_threads, force)
+    main()
