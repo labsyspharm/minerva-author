@@ -128,10 +128,6 @@ def group_path_from_label(group_data, label, data_dir=""):
     return dedup_label_to_path(group_data, data_dir)[label]
 
 
-def get_current_dir():
-    return os.path.dirname(os.path.abspath(sys.argv[0]))
-
-
 def get_story_dir():
     if getattr(sys, 'frozen', False):
         # If running pyinstaller executable, use _MEIPASS to construct path to data files.

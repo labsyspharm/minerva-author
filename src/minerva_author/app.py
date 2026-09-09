@@ -19,6 +19,7 @@ import multiprocessing
 multiprocessing.freeze_support()
 
 import pathlib
+import platformdirs
 import threadpoolctl
 from .create_vega import (
     create_vega_dict,
@@ -62,7 +63,6 @@ from .story import main as auto_minerva
 from .storyexport import (
     create_story_base,
     deduplicate_data,
-    get_current_dir,
     get_story_dir,
     get_story_folders,
     group_path_from_label,
@@ -80,6 +80,7 @@ threadpoolctl.threadpool_limits(1)
 tiff_lock = multiprocessing.Lock()
 mask_lock = multiprocessing.Lock()
 
+plat_dirs = platformdirs.PlatformDirs()
 
 FORMATTER = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
@@ -1736,7 +1737,7 @@ def api_import():
         input_file = pathlib.Path(data["filepath"])
         input_image_file = pathlib.Path(data["filepath"])
         loading_saved_file = input_file.suffix in [".dat", ".json"]
-        root_dir = get_current_dir()
+        root_dir = plat_dirs.user_documents_dir
 
         if not os.path.exists(input_file):
             return api_error(404, "Image file not found: " + str(input_file))
