@@ -29,6 +29,7 @@ dependencies = [
 minerva-author = "minerva_author.app:main"
 minerva-author-fit-settings = "minerva_author.fit_render_settings:main_wrap"
 minerva-author-render = "minerva_author.render:main"
+minerva-author-build-app = "minerva_author.build_app:main"
 
 [build-system]
 requires = ["uv_build>=0.12.6,<0.13.0"]

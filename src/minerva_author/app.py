@@ -34,9 +34,6 @@ from datetime import datetime
 from distutils.errors import DistutilsFileError
 from functools import update_wrapper, wraps
 
-# Needed for pyinstaller
-from numcodecs import blosc, compat_ext  # noqa
-
 # Math tools
 import numpy as np
 from matplotlib import colors
