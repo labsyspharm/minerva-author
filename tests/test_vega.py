@@ -1,9 +1,11 @@
 import os
 from pathlib import Path
-from create_vega import create_scatterplot
-from create_vega import create_barchart
-from create_vega import create_matrix
-from create_vega import create_vega_dict
+from minerva_author.create_vega import (
+    create_scatterplot,
+    create_barchart,
+    create_matrix,
+    create_vega_dict,
+)
 
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 

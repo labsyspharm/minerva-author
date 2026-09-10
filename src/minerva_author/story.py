@@ -1,16 +1,9 @@
 import concurrent.futures
-import csv
 import math
 import itertools
-import json
 import numpy as np
-import ome_types
 import sklearn.mixture
 import sys
-import tifffile
-import zarr
-import argparse
-import os
 
 def auto_threshold(img):
 

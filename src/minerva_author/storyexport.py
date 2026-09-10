@@ -4,7 +4,7 @@ import re
 import sys
 from distutils import file_util
 from distutils.errors import DistutilsFileError
-from create_vega import (
+from .create_vega import (
     create_vega_csv,
     modify_default,
     modify_matrix,
@@ -128,17 +128,14 @@ def group_path_from_label(group_data, label, data_dir=""):
     return dedup_label_to_path(group_data, data_dir)[label]
 
 
-def get_current_dir():
-    return os.path.dirname(os.path.abspath(sys.argv[0]))
-
-
 def get_story_dir():
-    try:
-        # If running pyinstaller executable, _MEIPASS will contain path to the data directory in tmp
-        story_dir = os.path.join(sys._MEIPASS, "minerva-story")
-    except Exception:
-        # Not running pyinstaller executable; minerva-story should exist in parent directory
-        story_dir = os.path.join(get_current_dir(), "..", "minerva-story")
+    if getattr(sys, 'frozen', False):
+        # If running pyinstaller executable, use _MEIPASS to construct path to data files.
+        app_base = pathlib.Path(sys._MEIPASS) / 'minerva_author'
+    else:
+        # Otherwise access directly from source directory.
+        app_base = pathlib.Path(__file__).parent
+    story_dir = app_base / 'static' / 'viewer'
 
     return story_dir
 

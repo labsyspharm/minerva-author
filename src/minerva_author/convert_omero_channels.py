@@ -78,7 +78,7 @@ def main(omero_json, author_json):
         print(f"Success! {author_json} written")
 
 
-if __name__ == "__main__":
+def main_wrap():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -99,3 +99,7 @@ if __name__ == "__main__":
     author_json = args.author_json
 
     main(omero_json, author_json)
+
+
+if __name__ == "__main__":
+    main_wrap()

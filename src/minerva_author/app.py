@@ -1,3 +1,6 @@
+# flake8: noqa: E402
+
+import argparse
 import os
 import re
 import sys
@@ -14,25 +17,22 @@ import json
 import logging
 import multiprocessing
 multiprocessing.freeze_support()
+
 import pathlib
-import sklearn.utils.fixes
+import platformdirs
 import threadpoolctl
-from create_vega import (
+from .create_vega import (
     create_vega_dict,
     create_scatterplot,
     create_barchart,
     create_matrix,
 )
-from thumbnail import find_group_tiles
-from thumbnail import merge_tiles_and_save_image
+from .thumbnail import find_group_tiles
+from .thumbnail import merge_tiles_and_save_image
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from distutils import file_util
 from distutils.errors import DistutilsFileError
 from functools import update_wrapper, wraps
-
-# Needed for pyinstaller
-from numcodecs import blosc, compat_ext  # noqa
 
 # Math tools
 import numpy as np
@@ -52,16 +52,14 @@ from flask import Flask, jsonify, make_response, request, send_file
 from flask_cors import CORS, cross_origin
 
 # Local sub-modules
-from pyramid_assemble import main as make_ome
-from render_jpg import _calculate_total_tiles, composite_channel, render_color_tiles
-from render_png import colorize_integer, colorize_mask, render_tile, render_u32_tiles
-from render_png import MissingTilePNG
-from story import main as auto_minerva
-from storyexport import (
+from .pyramid_assemble import main as make_ome
+from .render_jpg import _calculate_total_tiles, composite_channel, render_color_tiles
+from .render_png import colorize_integer, colorize_mask, render_tile, render_u32_tiles
+from .render_png import MissingTilePNG
+from .story import main as auto_minerva
+from .storyexport import (
     create_story_base,
-    lookup_vis_data_type,
     deduplicate_data,
-    get_current_dir,
     get_story_dir,
     get_story_folders,
     group_path_from_label,
@@ -74,14 +72,12 @@ from storyexport import (
 if os.name == "nt":
     from ctypes import windll
 
-#sklearn.utils.fixes.threadpool_limits(1)
 threadpoolctl.threadpool_limits(1)
 
 tiff_lock = multiprocessing.Lock()
 mask_lock = multiprocessing.Lock()
 
-
-PORT = 2020
+plat_dirs = platformdirs.PlatformDirs()
 
 FORMATTER = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
@@ -243,7 +239,7 @@ class ZarrWrapper:
         y_idx = self.to_dimension('Y')
         x_idx = self.to_dimension('X')
 
-        to_shape = lambda mag,idx: self.group[mag].shape[idx]
+        to_shape = lambda mag,idx: self.group[str(mag)].shape[idx]
         low_mag = list(range(len(self.group)))
         high_mag = low_mag[1:]
 
@@ -273,7 +269,7 @@ class ZarrWrapper:
         if level % step != 0:
             return None
         # Map available levels
-        return level // step
+        return str(level // step)
 
 class Opener:
     def __init__(self, path):
@@ -291,22 +287,22 @@ class Opener:
                 self.io = tifffile.TiffFile(self.path, is_ome=False)
             self.group = zarr.open(self.io.series[0].aszarr())
             # Treat non-pyramids as groups of one array
-            if isinstance(self.group, zarr.core.Array):
+            if isinstance(self.group, zarr.Array):
                 root = zarr.group()
-                root[0] = self.group
+                root['0'] = self.group
                 self.group = root
             print("OME ", self.ome_version)
 
             # Backup approach to dimension order
             metadata = self.read_metadata()
-            dimensions = 'YX' if len(self.group[0].shape) < 3 else 'IYX'
+            dimensions = 'YX' if len(self.group['0'].shape) < 3 else 'IYX'
             if self.ome_version == 6 and metadata:
                 ome_dim_order = metadata.images[0].pixels.dimension_order.value
-                dimensions = ome_dim_order[0:len(self.group[0].shape)][::-1]
+                dimensions = ome_dim_order[0:len(self.group['0'].shape)][::-1]
 
             # Direct approach to dimension order
             try:
-                dimensions = self.io.series[0].get_axes()
+                dimensions = self.io.series[0].axes
             except AttributeError:
                 print('Unable to detect dimension order from TIFF series.')
 
@@ -413,9 +409,9 @@ class Opener:
 
         if self.reader == "tifffile":
 
-            (num_channels, shape_x, shape_y) = parse_shape(self.group[0].shape)
+            (num_channels, shape_x, shape_y) = parse_shape(self.group['0'].shape)
             all_levels = [
-                parse_shape(v.shape) for v in self.group.values()
+                parse_shape(v.shape) for k, v in self.group.members()
             ]
             max_group_level = -1 + len([
                 shape for shape in all_levels if max(shape[1:]) > 512 
@@ -461,7 +457,7 @@ class Opener:
                         # TODO: real support for uint32, signed values, and floats
                         tile = np.clip(tile, 0, 65535).astype(np.uint16)
 
-            return Image.fromarray(tile, _format)
+            return Image.fromarray(tile)
 
     def generate_mask_tiles(
         self, filename, mask_params, tsize, level, tx, ty, should_skip_tiles={}
@@ -549,7 +545,7 @@ class Opener:
             tile[:, :, 2] = tile_2
 
             g_tile = gamma_correct(tile, gamma)
-            return Image.fromarray(g_tile, "RGB")
+            return Image.fromarray(g_tile)
 
         elif self.reader == "tifffile" and self.is_rgba("1 channel"):
 
@@ -557,7 +553,7 @@ class Opener:
             tile = self.read_tiles(level, 0, tx, ty, tsize)
 
             g_tile = gamma_correct(tile, gamma)
-            return Image.fromarray(g_tile, "RGB")
+            return Image.fromarray(g_tile)
 
         elif self.reader == "tifffile":
             target = None
@@ -635,7 +631,7 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
-app = Flask(__name__, static_folder=resource_path("static"), static_url_path="")
+app = Flask(__name__.split('.')[0], static_url_path="")
 
 cors = CORS(app)
 app.config["CORS_HEADERS"] = "Content-Type"
@@ -1626,6 +1622,7 @@ def api_render(session):
         mask_config_rows = make_mask_rows(out_dir, mask_data, session)
 
         # Render all uint16 image channels
+        # FIXME Could parallelize here.
         render_color_tiles(
             opener,
             out_dir,
@@ -1737,7 +1734,7 @@ def api_import():
         input_file = pathlib.Path(data["filepath"])
         input_image_file = pathlib.Path(data["filepath"])
         loading_saved_file = input_file.suffix in [".dat", ".json"]
-        root_dir = get_current_dir()
+        root_dir = plat_dirs.user_documents_dir
 
         if not os.path.exists(input_file):
             return api_error(404, "Image file not found: " + str(input_file))
@@ -2030,12 +2027,39 @@ def close_import_pool():
             print(e)
 
 
-def open_browser():
-    webbrowser.open_new("http://127.0.0.1:" + str(PORT) + "/")
-
 G = reset_globals()
 
-if __name__ == "__main__":
+
+def main():
+
+    parser = argparse.ArgumentParser(
+        description="Minerva Author back-end web server interface"
+    )
+    parser.add_argument(
+        '--port',
+        type=int,
+        default=2020,
+        help='Port number for the back-end web server (default: 2020)',
+    )
+    parser.add_argument(
+        '--num-workers',
+        type=int,
+        metavar='N',
+        help='Number of worker thread to process data in parallel (default: number of available'
+        ' CPU cores)',
+    )
+    parser.add_argument(
+        '--no-browser',
+        action='store_true',
+        help='Skip automatically opening the app URL in a web browser',
+    )
+    parser.add_argument(
+        '--dev',
+        action='store_true',
+        help='Enable developer mode (show HTTP request log, enable hot code reloading)',
+    )
+    #parser.add_argument('--version', action='version', version=f'minerva-author {__version__}')
+    args = parser.parse_args()
 
     atexit.register(close_tiff)
     atexit.register(close_masks)
@@ -2043,12 +2067,32 @@ if __name__ == "__main__":
 
     sys.stdout.reconfigure(line_buffering=True)
 
-    num_workers = to_num_workers()
-    plural = 's' if num_workers > 1 else ''
-    print(f'Running server with {num_workers} thread{plural}')
-    if "--dev" in sys.argv:
-        open_browser()
-        app.run(debug=False, port=PORT)
+    num_workers = args.num_workers or to_num_workers()
+    print(f'Running server with {num_workers} worker threads')
+
+    author_url = "http://127.0.0.1:" + str(args.port) + "/"
+    if not args.no_browser:
+        browser = webbrowser.get()
+        if browser.name in {'www-browser', 'links', 'elinks', 'lynx', 'w3m'}:
+            print(
+                f'Auto-detected web browser "{browser.name}" is text-only and thus unsuitable'
+                ' for running minerva-author.'
+            )
+            args.no_browser = True
+    print('To access Minerva Author, open this URL in a graphical web browser:\n')
+    print('   ', author_url)
+    print('\n')
+    if not args.no_browser:
+        print('Opening the URL in your default web browser...')
+        webbrowser.open_new(author_url)
+    print("Press Ctrl-C to quit")
+
+    if args.dev:
+        print('Running in developer mode')
+        app.run(debug=False, port=args.port)
     else:
-        open_browser()
-        serve(app, listen="127.0.0.1:" + str(PORT), threads=num_workers, channel_timeout=15)
+        serve(app, port=args.port, threads=num_workers, channel_timeout=15)
+
+
+if __name__ == "__main__":
+    main()
