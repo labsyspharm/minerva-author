@@ -302,7 +302,7 @@ class Opener:
 
             # Direct approach to dimension order
             try:
-                dimensions = self.io.series[0].get_axes()
+                dimensions = self.io.series[0].axes
             except AttributeError:
                 print('Unable to detect dimension order from TIFF series.')
 
