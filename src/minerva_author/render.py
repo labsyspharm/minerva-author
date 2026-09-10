@@ -190,19 +190,19 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "ome-tiff",
+        "ome_tiff",
         metavar="OME_TIFF",
         type=pathlib.Path,
         help="Input path to OME-TIFF with all channel groups",
     )
     parser.add_argument(
-        "author-json",
+        "author_json",
         metavar="AUTHOR_JSON",
         type=pathlib.Path,
         help="Input Minerva Author save file with channel configuration",
     )
     parser.add_argument(
-        "output-dir",
+        "output_dir",
         metavar="OUTPUT_DIR",
         type=pathlib.Path,
         help="Output directory for exhibit and rendered JPEG pyramid",
@@ -232,7 +232,6 @@ def main():
     )
     parser.add_argument("--force", help="Overwrite output", action="store_true")
     args = parser.parse_args()
-
     FORMATTER = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
@@ -299,18 +298,19 @@ def main():
         exhibit_string = json.dumps(exhibit_config)
         wf.write(json_to_html(exhibit_string))
 
-    if opener.reader is None:
-        config_rows = list(make_rows(saved["groups"], rgba))
-        render_one_tile(one_tile, args.output_dir, config_rows)
-    else:
-        render(opener, saved, args.output_dir, rgba, args.threads, logger)
+    if not args.no_images:
+        if opener.reader is None:
+            config_rows = list(make_rows(saved["groups"], rgba))
+            render_one_tile(one_tile, args.output_dir, config_rows)
+        else:
+            render(opener, saved, args.output_dir, rgba, args.threads, logger)
 
-        # Render thumbnail
-        groups = exhibit_config["Groups"]
-        if len(groups) > 0:
-            group = exhibit_config.get("FirstGroup", groups[0]["Name"])
-            tiles = find_group_tiles(args.output_dir, args.output_dir / "exhibit.json", group)
-            merge_tiles_and_save_image(args.output_dir, tiles)
+            # Render thumbnail
+            groups = exhibit_config["Groups"]
+            if len(groups) > 0:
+                group = exhibit_config.get("FirstGroup", groups[0]["Name"])
+                tiles = find_group_tiles(args.output_dir, args.output_dir / "exhibit.json", group)
+                merge_tiles_and_save_image(args.output_dir, tiles)
 
 
 if __name__ == "__main__":
