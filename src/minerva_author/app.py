@@ -2166,7 +2166,9 @@ def main():
     if not args.no_browser:
         delay = 3 if use_gui else 0
         delay_msg = f'in {delay} seconds' if delay else ''
-        print(f'Opening the URL in your default web browser {delay_msg}...')
+        print(f'Opening the URL in your default web browser {delay_msg}...\n')
+        print('Keep this window open while working in Minerva Author!')
+        print('You may close it when you are done working and have saved your story.')
         open_browser(author_url, delay)
     if not use_gui:
         print("Press Ctrl-C to quit\n")
