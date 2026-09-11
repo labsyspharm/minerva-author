@@ -5,76 +5,60 @@ on:
     tags:
       - 'v*'
   pull_request:
-    branches: [ master ]
+    branches: [master]
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-26 ]
-        python-version: ["3.11"]
+        os: [macos-26, windows-2025]
     runs-on: ${{ matrix.os }}
     name: Pyinstaller for ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
-      - uses: conda-incubator/setup-miniconda@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
         with:
-          auto-update-conda: true
-          environment-file: requirements.yml
-          activate-environment: minerva-author
-          python-version: ${{ matrix.python-version }}
-      - name: OpenSlide Windows
-        if: startsWith(matrix.os,'windows')
-        shell: cmd /C CALL {0}
+          # Install a specific version of uv as recommended by Astral.
+          version: "0.12.6"
+      - name: Build app
         run: |
-          curl https://github.com/openslide/openslide-winbuild/releases/download/v20171122/openslide-win64-20171122.zip -L -o openslide.zip
-          unzip openslide.zip
-          dir
-          move openslide-win64-20171122\bin\* src\
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: OpenSlide MacOS
-        if: startsWith(matrix.os,'mac')
-        shell: bash -l {0}
+          uv run minerva-author-build-app
+      - name: Set version tag (default)
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: bash
         run: |
-          brew install openslide
-          conda install openslide
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Copy dlls on Windows
-        if: startsWith(matrix.os,'windows')
-        shell: cmd /C CALL {0}
+          echo "VERSION=${GITHUB_REF_NAME//\//_}" >> $GITHUB_ENV
+      - name: Set version tag (pull request)
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
         run: |
-          copy "%CONDA_PREFIX%\Library\bin\libcrypto-3-x64.dll" "%CONDA_PREFIX%\DLLs\libcrypto-3-x64.dll"
-          copy "%CONDA_PREFIX%\Library\bin\libssl-3-x64.dll" "%CONDA_PREFIX%\DLLs\libssl-3-x64.dll"
-      - name: Package Windows
-        if: startsWith(matrix.os,'windows')
-        shell: cmd /C CALL {0}
+          echo "VERSION=pr${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+      - name: Windows - Zip Exe
+        if: startsWith(matrix.os, 'windows')
+        shell: bash
         run: |
-          package_win.bat
-      - name: Zip Windows
-        if: startsWith(matrix.os,'windows')
-        shell: cmd /C CALL {0}
+          cd dist
+          mv minerva-author.exe MinervaAuthor.exe
+          7z a "../MinervaAuthor-$VERSION-windows-x86_64.zip" MinervaAuthor.exe
+      - name: MacOS - Zip App
+        if: startsWith(matrix.os, 'macos')
         run: |
-          move "dist" "minerva_author_${{ github.ref_name }}"
-          7z a minerva_author_${{ github.ref_name }}_windows.zip minerva_author_${{ github.ref_name }}
-      - name: Package Mac
-        if: startsWith(matrix.os,'mac')
-        shell: bash -l {0}
-        run: |
-          bash package_mac.sh
-      - name: Zip Mac
-        if: startsWith(matrix.os,'mac')
-        shell: bash -l {0}
-        run: |
-          mv dist minerva_author_${{ github.ref_name }}
-          mv minerva_author_${{ github.ref_name }}/app minerva_author_${{ github.ref_name }}/minerva_author
-          zip -vr minerva_author_${{ github.ref_name }}_macos.zip minerva_author_${{ github.ref_name }}/ -x "*.DS_Store"
+          cd dist
+          mv minerva-author.app MinervaAuthor.app
+          zip -r "../MinervaAuthor-$VERSION-mac-arm64.zip" MinervaAuthor.app
+      # # TODO: The DMG isn't really usable unless we can get it signed+notarized+stapled.
+      # - name: MacOS - Create DMG
+      #   if: startsWith(matrix.os, 'macos')
+      #   run: |
+      #     rm -rf dist/minerva-author
+      #     hdiutil create -volname MinervaAuthor -srcfolder dist -ov "MinervaAuthor-$VERSION-mac-arm64.dmg"
       - name: Create Release
         if: ${{ github.event_name == 'push' }}
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -84,13 +68,15 @@ jobs:
           prerelease: ${{ contains(github.ref, 'rc') }}
           fail_on_unmatched_files: false
           files: |
-            minerva_author_${{ github.ref_name }}_windows.zip
-            minerva_author_${{ github.ref_name }}_macos.zip
+            MinervaAuthor*.zip
+            # MinervaAuthor*.dmg
       - name: Upload artifacts for pull requests
         if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: minerva-author-pr${{ github.event.pull_request.number }}-${{ matrix.os }}
-          path: minerva_author_*.zip
-          compression-level: 0
+          path: |
+            MinervaAuthor*.zip
+            # MinervaAuthor*.dmg
+          archive: false
           if-no-files-found: error
