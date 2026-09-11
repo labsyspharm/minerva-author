@@ -122,8 +122,8 @@ def render_color_tiles(
                     except AttributeError as e:
                         logger.error(f"{level} ty {ty} tx {tx}: {e}")
                 else:
-                    logger.warning(f"Not saving tile level {level} ty {ty} tx {tx}")
-                    logger.warning(
+                    logger.info(f"Not saving tile level {level} ty {ty} tx {tx}")
+                    logger.info(
                         f"Path {output_file} exists with same rendering settings"
                     )
 

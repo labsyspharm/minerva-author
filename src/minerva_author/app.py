@@ -54,6 +54,7 @@ from flask_cors import CORS, cross_origin
 
 # GUI front-end tools
 import tkinter as tk
+import tkinter.scrolledtext as tk_scrolledtext
 
 # Local sub-modules
 from .pyramid_assemble import main as make_ome
@@ -515,8 +516,8 @@ class Opener:
             should_skip_tiles[output_file] = should_skip
 
         if all(should_skip_tiles.values()):
-            logger.warning(f"Not saving tile level {level} ty {ty} tx {tx}")
-            logger.warning(f"Every mask {filename} exists with same rendering settings")
+            logger.info(f"Not saving tile level {level} ty {ty} tx {tx}")
+            logger.info(f"Every mask {filename} exists with same rendering settings")
             return
 
         if self.reader == "tifffile":
@@ -2077,25 +2078,27 @@ class StreamTextDuplicator:
         self.tag = tag
 
     def write(self, text):
-        self.orig_stream.write(text)
+        if self.orig_stream is not None:
+            self.orig_stream.write(text)
         self.text_widget.config(state=tk.NORMAL)
         self.text_widget.insert('end', text, self.tag)
         self.text_widget.see('end')
         self.text_widget.config(state=tk.DISABLED)
 
     def flush(self):
-        self.orig_stream.flush()
+        if self.orig_stream is not None:
+            self.orig_stream.flush()
 
 
 def build_gui():
     try:
         root = tk.Tk()
-    except:
+    except tk.TclError:
         return None
     root.title('Minerva Author')
     label = tk.Label(root, text="Server Status: Running", fg="green")
     label.pack(pady=20)
-    text = tk.Text(root, height=25, width=80)
+    text = tk_scrolledtext.ScrolledText(root, height=25, width=80)
     text.config(state=tk.DISABLED)
     text.tag_config("error", foreground="red")
     text.pack(padx=10, pady=20, fill="both", expand=True)
