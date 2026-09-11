@@ -2,6 +2,7 @@
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
+import sys
 
 datas = []
 binaries = []
@@ -15,7 +16,7 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['.venv/bin/minerva-author'],
+    ['minerva-author.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -29,12 +30,19 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+if sys.platform == 'darwin':
+    is_macos = True
+    extra_args = []
+else:
+    is_macos = False
+    extra_args = [a.binaries, a.datas]
+
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
+    *extra_args,
     [],
+    exclude_binaries=is_macos,
     name='minerva-author',
     debug=False,
     bootloader_ignore_signals=False,
@@ -49,3 +57,20 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
+if is_macos:
+    coll = COLLECT(
+        exe,
+        a.binaries,
+        a.datas,
+        strip=False,
+        upx=True,
+        upx_exclude=[],
+        name='minerva-author',
+    )
+    app = BUNDLE(
+        coll,
+        name='minerva-author.app',
+        icon=None,
+        bundle_identifier=None,
+    )
