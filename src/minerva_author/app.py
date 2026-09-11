@@ -2030,7 +2030,33 @@ def close_import_pool():
             print(e, file=sys.stderr)
 
 
-def spawn_server(port, num_workers, daemon):
+def validate_browser():
+    try:
+        browser = webbrowser.get()
+        if browser.name in {'www-browser', 'links', 'elinks', 'lynx', 'w3m'}:
+            print(
+                f'Auto-detected web browser "{browser.name}" is text-only and thus unsuitable'
+                ' for running minerva-author.',
+                file=sys.stderr,
+            )
+            return False
+    except webbrowser.Error as e:
+        # No browser available.
+        print(e, file=sys.stderr)
+        return False
+    return True
+
+
+def open_browser(url, delay=0):
+
+    def target():
+        time.sleep(delay)
+        webbrowser.open_new(url)
+
+    threading.Thread(target=target, daemon=True).start()
+
+
+def spawn_server(port, num_workers, daemon=True):
 
     def target():
         serve(app, host='127.0.0.1', port=port, threads=num_workers, channel_timeout=15)
@@ -2129,36 +2155,27 @@ def main():
         # and we want all the informational text we print below to appear there.
         gui_root = build_gui()
         if gui_root is None:
+            # No display available or tkinter failed for some other reason.
             use_gui = False
-    else:
-        sys.stdout.reconfigure(line_buffering=True)
 
     num_workers = args.num_workers or to_num_workers()
     print(f'Running server with {num_workers} worker threads')
 
     author_url = "http://127.0.0.1:" + str(args.port) + "/"
     if not args.no_browser:
-        try:
-            browser = webbrowser.get()
-        except webbrowser.Error as e:
-            print(e, file=sys.stderr)
-            browser = None
+        if not validate_browser():
             args.no_browser = True
-        if browser and browser.name in {'www-browser', 'links', 'elinks', 'lynx', 'w3m'}:
-            print(
-                f'Auto-detected web browser "{browser.name}" is text-only and thus unsuitable'
-                ' for running minerva-author.',
-                file=sys.stderr,
-            )
-            args.no_browser = True
-    print('To access Minerva Author, open this URL in a graphical web browser:\n')
-    print('   ', author_url)
-    print('')
+    print(
+        f'To access Minerva Author, open this URL in a graphical web browser:\n\n    {author_url}\n'
+    )
     if not args.no_browser:
-        print('Opening the URL in your default web browser...')
-        webbrowser.open_new(author_url)
+        delay = 3 if use_gui else 0
+        delay_msg = f'in {delay} seconds' if delay else ''
+        print(f'Opening the URL in your default web browser {delay_msg}...')
+        open_browser(author_url, delay)
     if not use_gui:
-        print("Press Ctrl-C to quit")
+        print("Press Ctrl-C to quit\n")
+        sys.stdout.reconfigure(line_buffering=True)
 
     if args.dev:
         print('Running in developer mode')
