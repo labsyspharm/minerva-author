@@ -10,8 +10,6 @@ hiddenimports = ['imagecodecs._shared', 'imagecodecs._imcd', 'imagecodecs._share
 hiddenimports += collect_submodules('xsdata_pydantic_basemodel')
 tmp_ret = collect_all('altair')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-tmp_ret = collect_all('xmlschema')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('ome_types')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
