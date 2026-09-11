@@ -1,5 +1,3 @@
-# flake8: noqa: E402
-
 import argparse
 import os
 import re
@@ -15,9 +13,6 @@ import traceback
 import itertools
 import json
 import logging
-import multiprocessing
-multiprocessing.freeze_support()
-
 import pathlib
 import platformdirs
 import threadpoolctl
@@ -79,8 +74,8 @@ if os.name == "nt":
 
 threadpoolctl.threadpool_limits(1)
 
-tiff_lock = multiprocessing.Lock()
-mask_lock = multiprocessing.Lock()
+tiff_lock = threading.Lock()
+mask_lock = threading.Lock()
 
 plat_dirs = platformdirs.PlatformDirs()
 
@@ -96,10 +91,7 @@ tifffile.tifffile.log_warning = custom_log_warning
 
 
 def to_num_workers():
-    if hasattr(os, "sched_getaffinity"):
-        num_workers = len(os.sched_getaffinity(0))
-    else:
-        num_workers = multiprocessing.cpu_count()
+    num_workers = os.process_cpu_count()
     return num_workers
 
 def gamma_correct_float(float_tile, gamma):
