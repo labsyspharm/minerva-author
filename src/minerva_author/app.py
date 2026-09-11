@@ -2172,7 +2172,6 @@ def main():
         open_browser(author_url, delay)
     if not use_gui:
         print("Press Ctrl-C to quit\n")
-        sys.stdout.reconfigure(line_buffering=True)
 
     if args.dev:
         print('Running in developer mode')
