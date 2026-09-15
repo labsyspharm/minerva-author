@@ -42,13 +42,11 @@ jobs:
         shell: bash
         run: |
           cd dist
-          mv minerva-author.exe MinervaAuthor.exe
           7z a "../MinervaAuthor-$VERSION-windows-x86_64.zip" MinervaAuthor.exe
       - name: MacOS - Zip App
         if: startsWith(matrix.os, 'macos')
         run: |
           cd dist
-          mv minerva-author.app MinervaAuthor.app
           zip -r "../MinervaAuthor-$VERSION-mac-arm64.zip" MinervaAuthor.app
       # # TODO: The DMG isn't really usable unless we can get it signed+notarized+stapled.
       # - name: MacOS - Create DMG

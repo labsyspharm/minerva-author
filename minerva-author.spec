@@ -43,7 +43,7 @@ exe = EXE(
     *extra_args,
     [('u', None, 'OPTION')],
     exclude_binaries=is_macos,
-    name='minerva-author',
+    name='MinervaAuthor',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -56,6 +56,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon='icon.png',
 )
 
 if is_macos:
@@ -70,7 +71,7 @@ if is_macos:
     )
     app = BUNDLE(
         coll,
-        name='minerva-author.app',
-        icon=None,
+        name='MinervaAuthor.app',
+        icon='icon.png',
         bundle_identifier=None,
     )
