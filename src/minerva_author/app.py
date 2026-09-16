@@ -1,5 +1,3 @@
-# flake8: noqa: E402
-
 import argparse
 import os
 import re
@@ -15,12 +13,10 @@ import traceback
 import itertools
 import json
 import logging
-import multiprocessing
-multiprocessing.freeze_support()
-
 import pathlib
 import platformdirs
 import threadpoolctl
+import threading
 from .create_vega import (
     create_vega_dict,
     create_scatterplot,
@@ -51,6 +47,10 @@ from urllib.parse import unquote
 from flask import Flask, jsonify, make_response, request, send_file
 from flask_cors import CORS, cross_origin
 
+# GUI front-end tools
+import tkinter as tk
+import tkinter.scrolledtext as tk_scrolledtext
+
 # Local sub-modules
 from .pyramid_assemble import main as make_ome
 from .render_jpg import _calculate_total_tiles, composite_channel, render_color_tiles
@@ -74,8 +74,8 @@ if os.name == "nt":
 
 threadpoolctl.threadpool_limits(1)
 
-tiff_lock = multiprocessing.Lock()
-mask_lock = multiprocessing.Lock()
+tiff_lock = threading.Lock()
+mask_lock = threading.Lock()
 
 plat_dirs = platformdirs.PlatformDirs()
 
@@ -91,10 +91,7 @@ tifffile.tifffile.log_warning = custom_log_warning
 
 
 def to_num_workers():
-    if hasattr(os, "sched_getaffinity"):
-        num_workers = len(os.sched_getaffinity(0))
-    else:
-        num_workers = multiprocessing.cpu_count()
+    num_workers = os.process_cpu_count()
     return num_workers
 
 def gamma_correct_float(float_tile, gamma):
@@ -182,10 +179,10 @@ def copy_vis_csv_files(waypoint_data, json_path):
                 # Modify matrix CSV files if needed
                 copy_vega_csv(waypoint_data, in_path, out_path)
             except DistutilsFileError as e:
-                print(f"Cannot copy {in_path}")
-                print(e)
+                print(f"Cannot copy {in_path}", file=sys.stderr)
+                print(e, file=sys.stderr)
         else:
-            print(f"Refusing to copy non-csv infovis: {in_path}")
+            print(f"Refusing to copy non-csv infovis: {in_path}", file=sys.stderr)
 
 
 def get_empty_path(path):
@@ -304,7 +301,7 @@ class Opener:
             try:
                 dimensions = self.io.series[0].axes
             except AttributeError:
-                print('Unable to detect dimension order from TIFF series.')
+                print('Unable to detect dimension order from TIFF series.', file=sys.stderr)
 
             print(f'Dimensions: {dimensions}')
             self.wrapper = ZarrWrapper(self.group, dimensions)
@@ -345,7 +342,7 @@ class Opener:
             else:
                 return 6
         except Exception as e:
-            print(e)
+            print(e, file=sys.stderr)
             return 5
 
     def read_metadata(self):
@@ -511,8 +508,8 @@ class Opener:
             should_skip_tiles[output_file] = should_skip
 
         if all(should_skip_tiles.values()):
-            logger.warning(f"Not saving tile level {level} ty {ty} tx {tx}")
-            logger.warning(f"Every mask {filename} exists with same rendering settings")
+            logger.info(f"Not saving tile level {level} ty {ty} tx {tx}")
+            logger.info(f"Every mask {filename} exists with same rendering settings")
             return
 
         if self.reader == "tifffile":
@@ -592,9 +589,9 @@ class Opener:
             img = self.return_tile(*args)
             img.save(output_file, quality=85)
         except ValueError:
-            print(f'Unable to save tile at level {level} ty {ty} tx {tx}')
+            print(f'Unable to save tile at level {level} ty {ty} tx {tx}', file=sys.stderr)
         except MissingLevel:
-            print(f'Unable to save tile at level {level} ty {ty} tx {tx}')
+            print(f'Unable to save tile at level {level} ty {ty} tx {tx}', file=sys.stderr)
 
 
 def api_error(status, message):
@@ -661,14 +658,13 @@ def return_opener(path, key):
             opener = Opener(path)
             return opener if opener.reader is not None else None
         except (FileNotFoundError) as e:
-            print(e)
+            print(e, file=sys.stderr)
             return None
     else:
         return G[key][path]
 
 
 def convert_mask(path):
-    sys.stdout.reconfigure(line_buffering=True)
 
     ome_path = tif_path_to_ome_path(path)
     if os.path.exists(ome_path):
@@ -773,12 +769,12 @@ def load_mask_state_subsets(filename):
         state_labels = []
         for row in csv.DictReader(cf):
             if "CellID" not in row:
-                print(f"No CellID found in {filename}")
+                print(f"No CellID found in {filename}", file=sys.stderr)
                 break
             try:
                 cell_id = int(row.get("CellID", None))
             except TypeError:
-                print(f"Cannot parse CellID in {filename}")
+                print(f"Cannot parse CellID in {filename}", file=sys.stderr)
                 continue
 
             # Determine whether to use State or sequentially numbered State
@@ -793,14 +789,14 @@ def load_mask_state_subsets(filename):
                         state_labels.append(state_i)
 
                 if not len(state_labels):
-                    print(f"No State headers found in {filename}")
+                    print(f"No State headers found in {filename}", file=sys.stderr)
                     break
 
             # Load from each State label
             for state_i in state_labels:
                 cell_state = row.get(state_i, "")
                 if cell_state == "":
-                    print(f'Empty {state_i} for CellID "{cell_id}" in {filename}')
+                    print(f'Empty {state_i} for CellID "{cell_id}" in {filename}', file=sys.stderr)
                     continue
 
                 mask_subsets = all_mask_states.get(state_i, {})
@@ -1348,7 +1344,7 @@ def make_mask_rows(out_dir, mask_data, session):
             })
             all_mask_params[mask_path] = mask_params
         else:
-            print(f"Unable to access mask at {mask_path}")
+            print(f"Unable to access mask at {mask_path}", file=sys.stderr)
 
     return all_mask_params.values()
 
@@ -1429,7 +1425,7 @@ def add_image_tiles_to_dict(cache_dict, config_rows, opener, out_dir_rel, gamma)
         num_levels = opener.get_shape()[1]
         group_dir = settings.get("Group Path", None)
         if group_dir is None:
-            print("Missing group path for image")
+            print("Missing group path for image", file=sys.stderr)
             continue
         # Cache tile parameters for every tile
         for level in range(num_levels):
@@ -1491,7 +1487,7 @@ def add_mask_tiles_to_dict(cache_dict, mask_config_rows):
         image_params = mask_params.get("images", [None])[0]
         output_path = image_params.get("out_path", None)
         if not all([image_params, output_path]):
-            print("Missing image path for mask")
+            print("Missing image path for mask", file=sys.stderr)
             continue
         # Cache tile parameters for every tile
         for level in range(num_levels):
@@ -1852,14 +1848,14 @@ def api_import():
             pixel_microns = pixels.physical_size_x_quantity.to('um').m
             pixels_per_micron = 1/pixel_microns if pixel_microns > 0 else 0
         except Exception as e:
-            print(user_facing_error_text)
-            print(traceback.format_exc())
+            print(user_facing_error_text, file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
             return api_error(500, "Image is missing OME-XML pixel size")
         try:
             labels = list(yield_labels(opener, csv_file, chan_label, num_channels))
         except Exception as e:
-            print(user_facing_error_text)
-            print(traceback.format_exc())
+            print(user_facing_error_text, file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
             return api_error(500, "Error in loading channel marker names")
 
         fh = logging.FileHandler(str(out_log))
@@ -2006,7 +2002,7 @@ def close_tiff():
         try:
             opener.close()
         except Exception as e:
-            print(e)
+            print(e, file=sys.stderr)
 
 
 def close_masks():
@@ -2015,7 +2011,7 @@ def close_masks():
         try:
             opener.close()
         except Exception as e:
-            print(e)
+            print(e, file=sys.stderr)
 
 
 def close_import_pool():
@@ -2024,7 +2020,85 @@ def close_import_pool():
         try:
             G["import_pool"].shutdown()
         except Exception as e:
-            print(e)
+            print(e, file=sys.stderr)
+
+
+def validate_browser():
+    try:
+        browser = webbrowser.get()
+        if browser.name in {'www-browser', 'links', 'elinks', 'lynx', 'w3m'}:
+            print(
+                f'Auto-detected web browser "{browser.name}" is text-only and thus unsuitable'
+                ' for running minerva-author.',
+                file=sys.stderr,
+            )
+            return False
+    except webbrowser.Error as e:
+        # No browser available.
+        print(e, file=sys.stderr)
+        return False
+    return True
+
+
+def open_browser(url, delay=0):
+
+    def target():
+        time.sleep(delay)
+        webbrowser.open_new(url)
+
+    threading.Thread(target=target, daemon=True).start()
+
+
+def spawn_server(port, num_workers, daemon=True):
+
+    def target():
+        serve(app, host='127.0.0.1', port=port, threads=num_workers, channel_timeout=15)
+
+    if daemon:
+        thread = threading.Thread(target=target, daemon=True)
+        thread.start()
+    else:
+        target()
+
+
+class StreamTextDuplicator:
+    """Copy all writes to a stream into a tkinter.Text widget"""
+
+    def __init__(self, stream, text_widget, tag=None):
+        self.orig_stream = stream
+        self.text_widget = text_widget
+        self.tag = tag
+
+    def write(self, text):
+        if self.orig_stream is not None:
+            self.orig_stream.write(text)
+        self.text_widget.config(state=tk.NORMAL)
+        self.text_widget.insert('end', text, self.tag)
+        self.text_widget.see('end')
+        self.text_widget.config(state=tk.DISABLED)
+
+    def flush(self):
+        if self.orig_stream is not None:
+            self.orig_stream.flush()
+
+
+def build_gui():
+    try:
+        root = tk.Tk()
+    except tk.TclError:
+        return None
+    root.title('Minerva Author')
+    label = tk.Label(root, text="Server Status: Running", fg="green")
+    label.pack(pady=20)
+    text = tk_scrolledtext.ScrolledText(root, height=25, width=80)
+    text.config(state=tk.DISABLED)
+    text.tag_config("error", foreground="red")
+    text.pack(padx=10, pady=20, fill="both", expand=True)
+    sys.stdout = StreamTextDuplicator(sys.stdout, text)
+    sys.stderr = StreamTextDuplicator(sys.stderr, text, tag='error')
+    button = tk.Button(root, text="Exit", command=root.quit)
+    button.pack(pady=20)
+    return root
 
 
 G = reset_globals()
@@ -2054,9 +2128,14 @@ def main():
         help='Skip automatically opening the app URL in a web browser',
     )
     parser.add_argument(
+        '--no-gui',
+        action='store_true',
+        help='Skip displaying the GUI wrapper and run as a console app instead',
+    )
+    parser.add_argument(
         '--dev',
         action='store_true',
-        help='Enable developer mode (show HTTP request log, enable hot code reloading)',
+        help='Enable developer mode (disable GUI, show HTTP request log)',
     )
     #parser.add_argument('--version', action='version', version=f'minerva-author {__version__}')
     args = parser.parse_args()
@@ -2065,33 +2144,42 @@ def main():
     atexit.register(close_masks)
     atexit.register(close_import_pool)
 
-    sys.stdout.reconfigure(line_buffering=True)
+    use_gui = not args.no_gui and not args.dev
+    if use_gui:
+        # We build the GUI early since it hooks into stdout/stderr to display them in its textarea,
+        # and we want all the informational text we print below to appear there.
+        gui_root = build_gui()
+        if gui_root is None:
+            # No display available or tkinter failed for some other reason.
+            use_gui = False
 
     num_workers = args.num_workers or to_num_workers()
     print(f'Running server with {num_workers} worker threads')
 
     author_url = "http://127.0.0.1:" + str(args.port) + "/"
     if not args.no_browser:
-        browser = webbrowser.get()
-        if browser.name in {'www-browser', 'links', 'elinks', 'lynx', 'w3m'}:
-            print(
-                f'Auto-detected web browser "{browser.name}" is text-only and thus unsuitable'
-                ' for running minerva-author.'
-            )
+        if not validate_browser():
             args.no_browser = True
-    print('To access Minerva Author, open this URL in a graphical web browser:\n')
-    print('   ', author_url)
-    print('\n')
+    print(
+        f'To access Minerva Author, open this URL in a graphical web browser:\n\n    {author_url}\n'
+    )
     if not args.no_browser:
-        print('Opening the URL in your default web browser...')
-        webbrowser.open_new(author_url)
-    print("Press Ctrl-C to quit")
+        delay = 3 if use_gui else 0
+        delay_msg = f'in {delay} seconds' if delay else ''
+        print(f'Opening the URL in your default web browser {delay_msg}...\n')
+        print('Keep this window open while working in Minerva Author!')
+        print('You may close it when you are done working and have saved your story.')
+        open_browser(author_url, delay)
+    if not use_gui:
+        print("Press Ctrl-C to quit\n")
 
     if args.dev:
         print('Running in developer mode')
         app.run(debug=False, port=args.port)
     else:
-        serve(app, port=args.port, threads=num_workers, channel_timeout=15)
+        spawn_server(args.port, num_workers, daemon=use_gui)
+        if use_gui:
+            gui_root.mainloop()
 
 
 if __name__ == "__main__":
