@@ -1,1 +1,0 @@
-pyinstaller -F --hidden-import="pkg_resources.py2_warn" --add-data "static;static" --add-data "minerva-story;minerva-story" --collect-all altair --collect-all xmlschema --collect-all ome_types --collect-submodules xsdata_pydantic_basemodel --icon icon.ico --name minerva_author --hidden-import="imagecodecs._shared" --hidden-import="imagecodecs._imcd" src/app.py
