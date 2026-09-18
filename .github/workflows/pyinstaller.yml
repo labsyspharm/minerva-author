@@ -24,7 +24,15 @@ jobs:
         with:
           # Install a specific version of uv as recommended by Astral.
           version: "0.12.6"
+      - name: MacOS - Import codesign certificate
+        if: startsWith(matrix.os, 'macos')
+        uses: apple-actions/import-codesign-certs@5142e029c445c10ffc7149d172e540235a065466  # v7.0.0
+        with:
+          p12-file-base64: ${{ secrets.APPSTORE_CERTIFICATES_FILE_BASE64 }}
+          p12-password: ${{ secrets.APPSTORE_CERTIFICATES_PASSWORD }}
       - name: Build app
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.APPSTORE_TEAM_ID }}
         run: |
           uv run minerva-author-build-app
       - name: Set version tag (default)
@@ -37,23 +45,28 @@ jobs:
         shell: bash
         run: |
           echo "VERSION=pr${{ github.event.pull_request.number }}" >> $GITHUB_ENV
+      - name: MacOS - Notarize App
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          cd dist
+          ditto -c -k --keepParent MinervaAuthor.app MinervaAuthor.zip
+          xcrun notarytool submit MinervaAuthor.zip \
+            --apple-id ${{ secrets.APPSTORE_APPLE_ID }} \
+            --team-id ${{ secrets.APPSTORE_TEAM_ID }} \
+            --password ${{ secrets.APPSTORE_CONNECT_PASSWORD }} \
+            --wait
+          xcrun stapler staple MinervaAuthor.app
+      - name: MacOS - Zip App
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          cd dist
+          ditto -c -k --keepParent MinervaAuthor.app "../MinervaAuthor-$VERSION-mac-arm64.zip"
       - name: Windows - Zip Exe
         if: startsWith(matrix.os, 'windows')
         shell: bash
         run: |
           cd dist
           7z a "../MinervaAuthor-$VERSION-windows-x86_64.zip" MinervaAuthor.exe
-      - name: MacOS - Zip App
-        if: startsWith(matrix.os, 'macos')
-        run: |
-          cd dist
-          zip -r "../MinervaAuthor-$VERSION-mac-arm64.zip" MinervaAuthor.app
-      # # TODO: The DMG isn't really usable unless we can get it signed+notarized+stapled.
-      # - name: MacOS - Create DMG
-      #   if: startsWith(matrix.os, 'macos')
-      #   run: |
-      #     rm -rf dist/minerva-author
-      #     hdiutil create -volname MinervaAuthor -srcfolder dist -ov "MinervaAuthor-$VERSION-mac-arm64.dmg"
       - name: Create Release
         if: ${{ github.event_name == 'push' }}
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64  # v3.0.3
@@ -67,7 +80,6 @@ jobs:
           fail_on_unmatched_files: false
           files: |
             MinervaAuthor*.zip
-            # MinervaAuthor*.dmg
       - name: Upload artifacts for pull requests
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -75,6 +87,5 @@ jobs:
           name: minerva-author-pr${{ github.event.pull_request.number }}-${{ matrix.os }}
           path: |
             MinervaAuthor*.zip
-            # MinervaAuthor*.dmg
           archive: false
           if-no-files-found: error
