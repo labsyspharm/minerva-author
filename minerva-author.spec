@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
@@ -54,7 +55,7 @@ exe = EXE(
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
-    codesign_identity=None,
+    codesign_identity=os.getenv('CODESIGN_IDENTITY', None),
     entitlements_file=None,
     icon='icon.png',
 )
@@ -73,5 +74,5 @@ if is_macos:
         coll,
         name='MinervaAuthor.app',
         icon='icon.png',
-        bundle_identifier=None,
+        bundle_identifier='org.labsyspharm.Minerva',
     )
