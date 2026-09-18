@@ -2098,6 +2098,7 @@ def build_gui():
     sys.stderr = StreamTextDuplicator(sys.stderr, text, tag='error')
     button = tk.Button(root, text="Exit", command=root.quit)
     button.pack(pady=20)
+    text.focus_set()
     return root
 
 
