@@ -4,6 +4,12 @@ from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
 import sys
+import tomllib
+
+is_macos = sys.platform == 'darwin'
+with open('pyproject.toml', 'rb') as f:
+    pp_data = tomllib.load(f)
+    version = pp_data['project']['version']
 
 datas = []
 binaries = []
@@ -14,7 +20,8 @@ tmp_ret = collect_all('altair')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('ome_types')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
-
+if is_macos:
+    datas += [('Credits.rtf', '.')]
 
 a = Analysis(
     ['minerva-author.py'],
@@ -31,11 +38,9 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-if sys.platform == 'darwin':
-    is_macos = True
+if is_macos:
     extra_args = []
 else:
-    is_macos = False
     extra_args = [a.binaries, a.datas]
 
 exe = EXE(
@@ -75,4 +80,5 @@ if is_macos:
         name='MinervaAuthor.app',
         icon='icon.png',
         bundle_identifier='org.labsyspharm.Minerva',
+        version=version,
     )
