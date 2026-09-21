@@ -16,80 +16,49 @@ The Python Flask server along with automated testing is stored at [minerva-autho
 
 ### Installing From the Source Repository
 
-All commands should be run in "Terminal" on MacOS and "Anaconda Prompt" on Windows.
+All commands should be run in "Terminal" on MacOS or "PowerShell" on Windows.
 
-First, download this repository through the git command line:
+First, download this repository with `git` at the command line (on Windows you will need to download and install git first):
 
 ```
 git clone https://github.com/labsyspharm/minerva-author.git
 ```
 
-#### Windows
-
- * [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
- * Install [Anaconda](https://docs.anaconda.com/anaconda/install/windows/)
- * Move [openslide](https://openslide.org/download/#windows-binaries) "bin" directory to "minerva-author/src"
- * Run `conda install -c anaconda git`
-
-Then run the following commands to set up the development environment:
-
-```
-cd minerva-author
-conda env create -f requirements.yml
-conda activate minerva-author
-```
-
-#### MacOS
-
- * install [homebrew](https://brew.sh/) and run `brew install openslide`.
- * Install [Anaconda](https://docs.anaconda.com/anaconda/install/mac-os/)
-
-Then run the following commands to set up the development environment:
-
-```
-cd minerva-author
-conda env create -f requirements.yml
-conda activate minerva-author
-```
+Then install `uv` from https://docs.astral.sh/uv/getting-started/installation/ .
 
 ### Running
 
 ```
-python src/app.py
+cd minerva-author
+uv run minerva-author
 ```
 
 - Browser window should open automatically, if not then open a browser to `localhost:2020`
 
-- Browse or copy the file path to an OME-TIFF or SVS
+- Browse or copy the file path to an OME-TIFF
 
-- Click import and wait for the generation of a full pyramid
+- Click import, and wait for the generation of a full pyramid if the OME-TIFF does not already include one.
 
-At minimum, you'll need to type one 'Group' name into the top dropdown to create a group. For each group you create, you can select channels from the second dropdown and set up their rendering settings with the various sliders. After you hit 'save', look in the directory of the executable (or app.py) for a new folder which contains the generated Minerva Story, with configuration files and an image pyramid.
+At minimum, you'll need to type one 'Group' name into the top dropdown to create a group. For each group you create, you can select channels from the second dropdown and set up their rendering settings with the various sliders. After you click 'Save', look in your Documents folder for a `.story.json` file which contains the story configuration. This file can be loaded later to continue editing. If you click 'Publish' then the compiled Minerva Story will also be located in a sub-folder in the same location. This sub-folder can be copied to any web host to share the story online.
 
-### Automated test suite
+### Test suite
 
-The project contains automated tests using the pytest framework. To run the test suite, simply execute in the project folder:
-```
-pytest
-```
-
-### Automated Releases
-
-All pushes to master will update the current draft relase.
+The project contains automated tests using the pytest framework. To run the test suite, run `pytest` from the top level of the project.
 
 ### Packaging
 
-#### MacOS
-
-To package the application as a standalone executable, run script:
+To build and package the application as a standalone executable, run:
 ```
-bash package_mac.sh
+uv run minerva-author-build-app
 ```
+This will build a macOS app bundle on macOS or a self-contained .exe on Windows.
 
-#### Windows (powershell)
+### Versioning
 
-Fetch OpenSlide binaries from https://openslide.org/download/#windows-binaries and save the .dll files to /src. Then run script:
-```
-package_win.bat
-```
+The version number is tracked in `pyproject.toml`. For releases, use `uv version --bump` then `git commit` and `git tag vX.Y.Z -m vX.Y.Z`.
 
+### Automated builds
+
+- All Pull Requests will be built for both macOS and Windows as per the Packaging section above and attached to the linked GitHub Actions run. This makes it easy to ship test builds to end users.
+
+- Pushes to the master branch tagged `vX.Y.Z` will trigger the automatic creation of a Release with the macOS and Windows builds attached. Note that the Release will appear before both builds are complete but the artifacts will be attached eventually when their respective build pipelines complete.
