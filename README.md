@@ -43,7 +43,11 @@ At minimum, you'll need to type one 'Group' name into the top dropdown to create
 
 ### Test suite
 
-The project contains automated tests using the pytest framework. To run the test suite, run `pytest` from the top level of the project.
+The project contains automated tests using the pytest framework. To run the test suite, run `pytest` via `uv` from the top level of the project:
+
+```
+uv run pytest
+```
 
 ### Packaging
 
