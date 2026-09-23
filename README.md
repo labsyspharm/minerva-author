@@ -2,6 +2,12 @@
 
 New users should start with our [pre-built Windows and MacOS applications](https://github.com/labsyspharm/minerva-author/releases/latest). More detailed [download and launch instructions](https://www.minerva.im/download.html) can be found at the Minerva website, in addition to [complete instructions and tutorials](https://www.minerva.im/usage/).
 
+Minerva Author may also be run on all platforms including Linux through [uv](https://docs.astral.sh/uv/getting-started/installation/):
+
+```
+uvx minerva-author
+```
+
 ## Information For Software Developers
 
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
