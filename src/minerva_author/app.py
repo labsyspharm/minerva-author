@@ -27,7 +27,6 @@ from .thumbnail import find_group_tiles
 from .thumbnail import merge_tiles_and_save_image
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from distutils.errors import DistutilsFileError
 from functools import update_wrapper, wraps
 
 # Math tools
@@ -178,7 +177,7 @@ def copy_vis_csv_files(waypoint_data, json_path):
             try:
                 # Modify matrix CSV files if needed
                 copy_vega_csv(waypoint_data, in_path, out_path)
-            except DistutilsFileError as e:
+            except OSError as e:
                 print(f"Cannot copy {in_path}", file=sys.stderr)
                 print(e, file=sys.stderr)
         else:

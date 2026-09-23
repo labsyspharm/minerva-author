@@ -1,9 +1,8 @@
 import os
 import pathlib
 import re
+import shutil
 import sys
-from distutils import file_util
-from distutils.errors import DistutilsFileError
 from .create_vega import (
     create_vega_csv,
     modify_default,
@@ -158,8 +157,8 @@ def create_story_base(title, waypoints, masks, folder=""):
     os.makedirs(out_dir, exist_ok=True)
 
     try:
-        file_util.copy_file(os.path.join(story_dir, "index.html"), export_dir)
-    except DistutilsFileError as e:
+        shutil.copy(os.path.join(story_dir, "index.html"), export_dir)
+    except OSError as e:
         print(f"Cannot copy index.html from {story_dir}")
         print(e)
 
@@ -173,7 +172,7 @@ def create_story_base(title, waypoints, masks, folder=""):
         if pathlib.Path(in_path).suffix in [".csv"]:
             try:
                 copy_vega_csv(waypoints, in_path, out_path)
-            except DistutilsFileError as e:
+            except OSError as e:
                 print(f"Cannot copy {in_path}")
                 print(e)
         else:

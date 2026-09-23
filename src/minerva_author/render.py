@@ -4,7 +4,6 @@ import logging
 import os
 import pathlib
 import threading
-from distutils.errors import DistutilsFileError
 from json.decoder import JSONDecodeError
 
 import numpy as np
@@ -88,7 +87,7 @@ def copy_vis_csv_files(waypoint_data, json_path, output_dir, vis_dir):
                 out_path = vis_path_dict_out[key_path]
                 # Modify matrix CSV files if needed
                 copy_vega_csv(waypoint_data, in_path, out_path)
-            except DistutilsFileError as e:
+            except OSError as e:
                 print(f"Cannot copy {in_path}")
                 print(e)
         else:
