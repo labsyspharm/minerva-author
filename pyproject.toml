@@ -1,6 +1,6 @@
 [project]
 name = "minerva-author"
-version = "1.23.0"
+version = "1.24.0"
 description = "Minerva Author back-end web server interface"
 readme = "README.md"
 authors = [
